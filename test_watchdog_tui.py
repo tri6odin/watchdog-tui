@@ -26,12 +26,12 @@ from watchdog_core import (
     check_http_endpoint,
     check_lcl_net,
     check_nas,
-    check_smb_share_macos,
+    check_smb_share_linux,
     check_tcp_port,
     check_tls_handshake,
     check_vpn,
     configure_checks,
-    ping_host_macos,
+    ping_host_linux,
     run_service_checks,
     seconds_until_next_history_bucket,
     smb_share_is_listed,
@@ -232,15 +232,15 @@ smb_share = BACKUP
         self.assertEqual(seconds_until_next_history_bucket(bucket_start), TEN_MINUTES)
         self.assertEqual(seconds_until_next_history_bucket(bucket_start + 125), TEN_MINUTES - 125)
 
-    def test_ping_host_uses_macos_ping_flags(self):
+    def test_ping_host_uses_linux_ping_flags(self):
         with patch("watchdog_core.subprocess.run") as run:
             run.return_value.returncode = 0
 
-            self.assertTrue(ping_host_macos("192.168.50.1", 1.0))
+            self.assertTrue(ping_host_linux("192.168.50.1", 1.0))
 
             run.assert_called_once()
             args = run.call_args.args[0]
-            self.assertEqual(args, ["ping", "-c", "1", "-W", "1000", "192.168.50.1"])
+            self.assertEqual(args, ["ping", "-c", "1", "-W", "1", "192.168.50.1"])
             self.assertEqual(run.call_args.kwargs["timeout"], 1.0)
 
     def test_http_endpoint_uses_curl_with_hard_timeout(self):
@@ -327,7 +327,7 @@ smb_share = BACKUP
         config = make_test_config()
         configure_checks(config)
 
-        with patch("watchdog_core.ping_host_macos", return_value=True) as ping:
+        with patch("watchdog_core.ping_host_linux", return_value=True) as ping:
             self.assertTrue(check_lcl_net())
             ping.assert_called_once_with(config.lcl_net.address, config.lcl_net.timeout_seconds)
 
@@ -368,26 +368,30 @@ smb_share = BACKUP
             create_connection.assert_called_once_with(("192.168.50.3", 445), timeout=1.0)
 
     def test_smb_share_parser_finds_share_name(self):
-        output = """
+        table_output = """
 Share                                           Type    Comments
 -------------------------------
 BACKUP                                          Disk
 homes                                           Disk
 """
-        self.assertTrue(smb_share_is_listed(output, "BACKUP"))
-        self.assertFalse(smb_share_is_listed(output, "MISSING"))
+        grepable_output = "Disk|BACKUP|\nDisk|homes|\n"
 
-    def test_smb_share_check_uses_smbutil_and_timeout(self):
+        self.assertTrue(smb_share_is_listed(table_output, "BACKUP"))
+        self.assertTrue(smb_share_is_listed(grepable_output, "BACKUP"))
+        self.assertFalse(smb_share_is_listed(grepable_output, "MISSING"))
+
+    def test_smb_share_check_uses_smbclient_and_timeout(self):
         with patch("watchdog_core.subprocess.run") as run:
             run.return_value.returncode = 0
-            run.return_value.stdout = "BACKUP Disk\n"
+            run.return_value.stdout = "Disk|BACKUP|\n"
 
-            self.assertTrue(check_smb_share_macos("192.168.50.3", "watchdog", "test-smb-pass", "BACKUP", 5.0))
+            self.assertTrue(check_smb_share_linux("192.168.50.3", "watchdog", "test-smb-pass", "BACKUP", 5.0))
 
             run.assert_called_once()
             args = run.call_args.args[0]
-            self.assertEqual(args[:4], ["smbutil", "view", "-N", "-f"])
-            self.assertEqual(args[4], "//watchdog:test-smb-pass@192.168.50.3")
+            self.assertEqual(args, ["smbclient", "-L", "//192.168.50.3", "-U", "watchdog", "-g"])
+            self.assertNotIn("test-smb-pass", args)
+            self.assertEqual(run.call_args.kwargs["env"]["PASSWD"], "test-smb-pass")
             self.assertEqual(run.call_args.kwargs["timeout"], 5.0)
 
     def test_nas_checker_uses_configured_settings(self):
@@ -395,7 +399,7 @@ homes                                           Disk
         configure_checks(config)
 
         with patch("watchdog_core.check_tcp_port", return_value=True) as tcp:
-            with patch("watchdog_core.check_smb_share_macos", return_value=True) as smb:
+            with patch("watchdog_core.check_smb_share_linux", return_value=True) as smb:
                 self.assertTrue(check_nas())
 
         tcp.assert_called_once_with(

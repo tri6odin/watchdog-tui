@@ -54,13 +54,14 @@ python3 watchdog_tui.py --once
 на экране `ЧАСЫ` новая правая ячейка закрашивается сразу после очередной
 автоматической проверки.
 
-Первые проверки уже реальные для macOS: `LCL NET` делает `ping`, `INT NET`
-проверяет TCP/TLS handshake до `ya.ru:443`, `VPN` проверяет TCP/TLS handshake
-до `instagram.com:443`, `HAOS` проверяет Home Assistant REST API `/api/config`,
-`NAS` проверяет TCP-порт SMB и наличие шары через `smbutil view`. Все адреса,
-порты, таймауты, токены и пароли лежат в `watchdog.conf`; шаблон без реальных
-секретов лежит в `watchdog.example.conf`. Токен Home Assistant передается в
-`curl` через stdin-конфиг, а не через аргументы процесса. Остальные проверки
+Первые проверки уже реальные для Raspberry Pi/Linux: `LCL NET` делает `ping`,
+`INT NET` проверяет TCP/TLS handshake до `ya.ru:443`, `VPN` проверяет TCP/TLS
+handshake до `instagram.com:443`, `HAOS` проверяет Home Assistant REST API
+`/api/config`, `NAS` проверяет TCP-порт SMB и наличие шары через `smbclient`.
+Все адреса, порты, таймауты, токены и пароли лежат в `watchdog.conf`; шаблон
+без реальных секретов лежит в `watchdog.example.conf`. Токен Home Assistant
+передается в `curl` через stdin-конфиг, а SMB-пароль передается в `smbclient`
+через переменную окружения, а не через аргументы процесса. Остальные проверки
 пока остаются заглушками в функциях `check_*`.
 
 Если в 10-минутном интервале уже был `FAIL` или `UNKNOWN`, ручная перепроверка

@@ -11,11 +11,11 @@ import time
 import subprocess
 import socket
 import ssl
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Callable, Dict, Iterable, Mapping, Optional
-from urllib.parse import quote
 
 from watchdog_config import WatchdogConfig
 
@@ -164,22 +164,22 @@ def require_runtime_config() -> WatchdogConfig:
     return _RUNTIME_CONFIG
 
 
-def ping_host_macos(host: str, timeout_seconds: float) -> bool:
-    """Проверить хост одним ICMP ping под macOS.
+def ping_host_linux(host: str, timeout_seconds: float) -> bool:
+    """Проверить хост одним ICMP ping под Linux/Raspberry Pi.
 
-    Флаги здесь намеренно macOS/BSD-специфичные:
+    Флаги здесь намеренно Linux/iputils-специфичные:
     - -c 1 отправляет один пакет;
-    - -W принимает таймаут ответа в миллисекундах.
+    - -W принимает таймаут ответа в секундах.
 
     timeout у subprocess равен пользовательскому таймауту. Это жесткий потолок:
     если ping по какой-то причине живет дольше, Watchdog прерывает проверку.
     """
 
     hard_timeout = max(0.001, timeout_seconds)
-    ping_timeout_ms = max(1, int(hard_timeout * 1000))
+    ping_timeout_seconds = max(1, int(hard_timeout))
     try:
         result = subprocess.run(
-            ["ping", "-c", "1", "-W", str(ping_timeout_ms), host],
+            ["ping", "-c", "1", "-W", str(ping_timeout_seconds), host],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=hard_timeout,
@@ -193,7 +193,7 @@ def ping_host_macos(host: str, timeout_seconds: float) -> bool:
 def check_http_endpoint(url: str, timeout_seconds: float, user_agent: str) -> bool:
     """Проверить, что HTTP endpoint отвечает нормальным статусом.
 
-    Для macOS используем системный curl: его --max-time задает общий лимит
+    Используем системный curl: его --max-time задает общий лимит
     операции, включая DNS/connect/TLS/redirect/read. Поверх этого subprocess
     получает такой же hard timeout, чтобы проверка точно не висела дольше
     заданного значения.
@@ -348,53 +348,53 @@ def check_tls_handshake(host: str, port: int, timeout_seconds: float) -> bool:
         return False
 
 
-def smb_share_is_listed(smbutil_output: str, share_name: str) -> bool:
-    """Проверить, что smbutil view показал нужную шару.
+def smb_share_is_listed(smb_output: str, share_name: str) -> bool:
+    """Проверить, что вывод smbclient показал нужную шару.
 
-    В типичном выводе macOS первая колонка содержит имя шары, затем тип и
-    комментарий. Нам достаточно найти точное совпадение первой колонки без
-    учета регистра.
+    На Raspberry Pi используем `smbclient -g`: в grepable-выводе имя шары
+    обычно идет второй колонкой, например `Disk|BACKUP|...`. Для устойчивости
+    также поддерживаем обычный табличный вывод, где имя шары стоит первым.
     """
 
     expected = share_name.strip().lower()
-    for line in smbutil_output.splitlines():
-        columns = line.strip().split()
-        if columns and columns[0].lower() == expected:
-            return True
+    for line in smb_output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if "|" in stripped:
+            columns = [column.strip().lower() for column in stripped.split("|")]
+            if expected in columns:
+                return True
+        else:
+            columns = stripped.split()
+            if columns and columns[0].lower() == expected:
+                return True
     return False
 
 
-def build_smb_url(host: str, user: str, password: str) -> str:
-    """Собрать SMB URL для smbutil.
-
-    quote нужен на случай спецсимволов в логине или пароле. Команду запускаем
-    списком аргументов без shell, поэтому строка URL не интерпретируется shell.
-    """
-
-    quoted_user = quote(user, safe="")
-    quoted_password = quote(password, safe="")
-    return f"//{quoted_user}:{quoted_password}@{host}"
-
-
-def check_smb_share_macos(
+def check_smb_share_linux(
     host: str,
     user: str,
     password: str,
     share: str,
     timeout_seconds: float,
 ) -> bool:
-    """Проверить доступность SMB-сервера и наличие нужной шары через smbutil."""
+    """Проверить доступность SMB-сервера и наличие нужной шары через smbclient."""
 
     hard_timeout = max(0.001, timeout_seconds)
+    env = os.environ.copy()
+    env["PASSWD"] = password
     try:
         result = subprocess.run(
             [
-                "smbutil",
-                "view",
-                "-N",
-                "-f",
-                build_smb_url(host, user, password),
+                "smbclient",
+                "-L",
+                f"//{host}",
+                "-U",
+                user,
+                "-g",
             ],
+            env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
@@ -413,7 +413,7 @@ def check_lcl_net() -> bool:
     """Проверка локальной сети через ping до домашнего шлюза."""
 
     config = require_runtime_config()
-    return ping_host_macos(config.lcl_net.address, config.lcl_net.timeout_seconds)
+    return ping_host_linux(config.lcl_net.address, config.lcl_net.timeout_seconds)
 
 
 def check_INT_net() -> bool:
@@ -476,7 +476,7 @@ def check_nas() -> bool:
     config = require_runtime_config()
     if not check_tcp_port(config.nas.address, config.nas.port, config.nas.tcp_timeout_seconds):
         return False
-    return check_smb_share_macos(
+    return check_smb_share_linux(
         config.nas.address,
         config.nas.smb_user,
         config.nas.smb_pass,
