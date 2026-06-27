@@ -8,9 +8,20 @@ from watchdog_config import (
     HaosConfig,
     NasConfig,
     PingConfig,
+    TouchConfig,
     TlsConfig,
     WatchdogConfig,
     load_watchdog_config,
+)
+from touch_swipe import (
+    ABS_X,
+    ABS_Y,
+    BTN_TOUCH,
+    EV_ABS,
+    EV_KEY,
+    SWIPE_LEFT,
+    TouchSwipeReader,
+    touch_event_device_from_proc_text,
 )
 from watchdog_core import (
     CHECK_ORDER,
@@ -61,6 +72,13 @@ def make_test_config() -> WatchdogConfig:
             smb_pass="test-smb-pass",
             smb_share="BACKUP",
         ),
+        touch=TouchConfig(
+            enabled=True,
+            event_device="auto",
+            swipe_min_dx=1200,
+            swipe_max_dt_sec=2.2,
+            swipe_horizontal_ratio=1.1,
+        ),
     )
 
 
@@ -102,6 +120,13 @@ smb_timeout_seconds = 5.0
 smb_user = watchdog
 smb_pass = test-pass
 smb_share = BACKUP
+
+[touch]
+enabled = true
+event_device = auto
+swipe_min_dx = 1200
+swipe_max_dt_sec = 2.2
+swipe_horizontal_ratio = 1.1
 """,
                 encoding="utf-8",
             )
@@ -118,12 +143,46 @@ smb_share = BACKUP
         self.assertEqual(config.haos.port, 8123)
         self.assertEqual(config.haos.token, "test-token")
         self.assertEqual(config.nas.smb_share, "BACKUP")
+        self.assertTrue(config.touch.enabled)
+        self.assertEqual(config.touch.event_device, "auto")
+        self.assertEqual(config.touch.swipe_min_dx, 1200)
+        self.assertEqual(config.touch.swipe_max_dt_sec, 2.2)
+        self.assertEqual(config.touch.swipe_horizontal_ratio, 1.1)
 
     def test_aggregate_priority(self):
         self.assertEqual(aggregate_statuses([]), Status.NO_DATA)
         self.assertEqual(aggregate_statuses([Status.OK, Status.OK]), Status.OK)
         self.assertEqual(aggregate_statuses([Status.OK, Status.UNKNOWN]), Status.UNKNOWN)
         self.assertEqual(aggregate_statuses([Status.OK, Status.FAIL, Status.UNKNOWN]), Status.FAIL)
+
+    def test_touch_device_is_detected_from_proc_devices_text(self):
+        proc_devices_text = """
+I: Bus=0018 Vendor=0000 Product=0000 Version=0000
+N: Name="Goodix Capacitive TouchScreen"
+P: Phys=input/ts
+H: Handlers=mouse0 event2
+B: EV=b
+
+I: Bus=0003 Vendor=0000 Product=0000 Version=0000
+N: Name="USB Keyboard"
+H: Handlers=sysrq kbd event0
+B: EV=120013
+"""
+
+        self.assertEqual(touch_event_device_from_proc_text(proc_devices_text), "/dev/input/event2")
+
+    def test_touch_swipe_reader_detects_horizontal_swipe(self):
+        reader = TouchSwipeReader("auto", min_dx=1200, max_dt_sec=2.2, horizontal_ratio=1.1)
+
+        with patch("touch_swipe.time.monotonic", side_effect=[10.0, 11.0]):
+            reader._process_event(EV_ABS, ABS_X, 5000)
+            reader._process_event(EV_ABS, ABS_Y, 2000)
+            reader._process_event(EV_KEY, BTN_TOUCH, 1)
+            reader._process_event(EV_ABS, ABS_X, 3500)
+            reader._process_event(EV_ABS, ABS_Y, 2100)
+            event = reader._process_event(EV_KEY, BTN_TOUCH, 0)
+
+        self.assertEqual(event, SWIPE_LEFT)
 
     def test_service_order_matches_watchdog_layout(self):
         expected_order = [

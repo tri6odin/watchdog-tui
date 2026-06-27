@@ -58,6 +58,15 @@ class NasConfig:
 
 
 @dataclass(frozen=True)
+class TouchConfig:
+    enabled: bool
+    event_device: str
+    swipe_min_dx: int
+    swipe_max_dt_sec: float
+    swipe_horizontal_ratio: float
+
+
+@dataclass(frozen=True)
 class WatchdogConfig:
     global_config: GlobalConfig
     lcl_net: PingConfig
@@ -65,6 +74,7 @@ class WatchdogConfig:
     vpn: TlsConfig
     haos: HaosConfig
     nas: NasConfig
+    touch: TouchConfig
 
 
 def load_watchdog_config(path: Path = DEFAULT_CONFIG_PATH) -> WatchdogConfig:
@@ -116,6 +126,13 @@ def load_watchdog_config(path: Path = DEFAULT_CONFIG_PATH) -> WatchdogConfig:
             smb_pass=_get_str(parser, "nas", "smb_pass"),
             smb_share=_get_str(parser, "nas", "smb_share"),
         ),
+        touch=TouchConfig(
+            enabled=_get_bool_default(parser, "touch", "enabled", True),
+            event_device=_get_str_default(parser, "touch", "event_device", "auto"),
+            swipe_min_dx=_get_int_default(parser, "touch", "swipe_min_dx", 1200),
+            swipe_max_dt_sec=_get_float_default(parser, "touch", "swipe_max_dt_sec", 2.2),
+            swipe_horizontal_ratio=_get_float_default(parser, "touch", "swipe_horizontal_ratio", 1.1),
+        ),
     )
 
 
@@ -154,3 +171,67 @@ def _get_int(parser: configparser.ConfigParser, section: str, option: str) -> in
     if value <= 0:
         raise ConfigError(f"Параметр [{section}] {option} должен быть больше нуля")
     return value
+
+
+def _get_str_default(
+    parser: configparser.ConfigParser,
+    section: str,
+    option: str,
+    default: str,
+) -> str:
+    if not parser.has_section(section) or not parser.has_option(section, option):
+        return default
+    value = parser.get(section, option).strip()
+    if value == "":
+        raise ConfigError(f"Параметр [{section}] {option} не должен быть пустым")
+    return value
+
+
+def _get_float_default(
+    parser: configparser.ConfigParser,
+    section: str,
+    option: str,
+    default: float,
+) -> float:
+    if not parser.has_section(section) or not parser.has_option(section, option):
+        return default
+    raw_value = _get_str_default(parser, section, option, str(default))
+    try:
+        value = float(raw_value)
+    except ValueError as exc:
+        raise ConfigError(f"Параметр [{section}] {option} должен быть числом") from exc
+    if value <= 0:
+        raise ConfigError(f"Параметр [{section}] {option} должен быть больше нуля")
+    return value
+
+
+def _get_int_default(
+    parser: configparser.ConfigParser,
+    section: str,
+    option: str,
+    default: int,
+) -> int:
+    if not parser.has_section(section) or not parser.has_option(section, option):
+        return default
+    raw_value = _get_str_default(parser, section, option, str(default))
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ConfigError(f"Параметр [{section}] {option} должен быть целым числом") from exc
+    if value <= 0:
+        raise ConfigError(f"Параметр [{section}] {option} должен быть больше нуля")
+    return value
+
+
+def _get_bool_default(
+    parser: configparser.ConfigParser,
+    section: str,
+    option: str,
+    default: bool,
+) -> bool:
+    if not parser.has_section(section) or not parser.has_option(section, option):
+        return default
+    try:
+        return parser.getboolean(section, option)
+    except ValueError as exc:
+        raise ConfigError(f"Параметр [{section}] {option} должен быть true или false") from exc

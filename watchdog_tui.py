@@ -55,7 +55,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        configure_checks(load_watchdog_config(args.config))
+        config = load_watchdog_config(args.config)
+        configure_checks(config)
     except ConfigError as exc:
         print(f"Ошибка конфигурации: {exc}", file=sys.stderr)
         return 2
@@ -72,7 +73,7 @@ def main() -> int:
         # Локаль важно включить до curses.wrapper/initscr, чтобы Python curses
         # корректно передавал в терминал Unicode-рамки, квадраты и индексы шкалы.
         locale.setlocale(locale.LC_ALL, "")
-        curses.wrapper(run_tui, db, args.interval)
+        curses.wrapper(run_tui, db, args.interval, config.touch)
         return 0
     finally:
         db.close()

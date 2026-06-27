@@ -64,12 +64,17 @@ handshake до `instagram.com:443`, `HAOS` проверяет Home Assistant RES
 через переменную окружения, а не через аргументы процесса. Остальные проверки
 пока остаются заглушками в функциях `check_*`.
 
+В ветке Raspberry Pi/Linux карусель можно листать горизонтальными свайпами
+тачскрина. По умолчанию `event_device = auto`: Watchdog ищет тачскрин через
+`/sys/class/input` и `/proc/bus/input/devices`, потому что `/dev/input/event0`
+может меняться после перезагрузки или изменения набора input-устройств.
+
 Если в 10-минутном интервале уже был `FAIL` или `UNKNOWN`, ручная перепроверка
 с `OK` не затирает этот статус: Watchdog сохраняет худшее состояние интервала.
 
 ## Проверка кода
 
 ```bash
-python3 -m py_compile watchdog_tui.py watchdog_config.py watchdog_core.py watchdog_db.py watchdog_ui.py test_watchdog_tui.py
+python3 -m py_compile watchdog_tui.py watchdog_config.py watchdog_core.py watchdog_db.py watchdog_ui.py touch_swipe.py test_watchdog_tui.py
 python3 -m unittest
 ```

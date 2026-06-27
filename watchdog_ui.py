@@ -11,6 +11,8 @@ import curses
 import time
 from typing import Iterable, Mapping, MutableMapping, Optional
 
+from touch_swipe import SWIPE_LEFT, SWIPE_RIGHT, TouchSwipeReader
+from watchdog_config import TouchConfig
 from watchdog_core import (
     BAR_WIDTH,
     CAROUSEL,
@@ -303,39 +305,81 @@ def read_key(stdscr: curses.window) -> Optional[object]:
         return None
 
 
-def run_tui(stdscr: curses.window, db: WatchdogDB, update_interval_seconds: int) -> None:
+def open_touch_reader(touch_config: Optional[TouchConfig]) -> Optional[TouchSwipeReader]:
+    """Открыть touch-reader, если он включен и доступен."""
+
+    if touch_config is None or not touch_config.enabled:
+        return None
+
+    reader = TouchSwipeReader(
+        touch_config.event_device,
+        min_dx=touch_config.swipe_min_dx,
+        max_dt_sec=touch_config.swipe_max_dt_sec,
+        horizontal_ratio=touch_config.swipe_horizontal_ratio,
+    )
+    if reader.open():
+        return reader
+    return None
+
+
+def read_swipe(touch_reader: Optional[TouchSwipeReader]) -> Optional[str]:
+    if touch_reader is None:
+        return None
+    return touch_reader.consume_available()
+
+
+def drain_swipes(touch_reader: Optional[TouchSwipeReader]) -> None:
+    if touch_reader is not None:
+        touch_reader.drain_available()
+
+
+def run_tui(
+    stdscr: curses.window,
+    db: WatchdogDB,
+    update_interval_seconds: int,
+    touch_config: Optional[TouchConfig] = None,
+) -> None:
     """Главный цикл TUI."""
 
     curses.curs_set(0)
     stdscr.nodelay(True)
     stdscr.keypad(True)
     colors = init_colors()
+    touch_reader = open_touch_reader(touch_config)
 
     current_screen = START_SCREEN
     next_auto_update_at = next_auto_update_time(update_interval_seconds)
 
-    while True:
-        if time.monotonic() >= next_auto_update_at:
-            perform_update(stdscr, db, colors, DEFAULT_UPDATE_STEP_DELAY_SECONDS)
-            current_screen = Screen.HOURS
-            next_auto_update_at = next_auto_update_time(update_interval_seconds)
+    try:
+        while True:
+            if time.monotonic() >= next_auto_update_at:
+                perform_update(stdscr, db, colors, DEFAULT_UPDATE_STEP_DELAY_SECONDS)
+                drain_swipes(touch_reader)
+                current_screen = Screen.HOURS
+                next_auto_update_at = next_auto_update_time(update_interval_seconds)
 
-        if current_screen == Screen.UPDATE:
-            perform_update(stdscr, db, colors, DEFAULT_UPDATE_STEP_DELAY_SECONDS)
-            current_screen = Screen.HOURS
-            next_auto_update_at = next_auto_update_time(update_interval_seconds)
-        else:
-            draw_history_screen(stdscr, db, current_screen, colors)
+            if current_screen == Screen.UPDATE:
+                perform_update(stdscr, db, colors, DEFAULT_UPDATE_STEP_DELAY_SECONDS)
+                drain_swipes(touch_reader)
+                current_screen = Screen.HOURS
+                next_auto_update_at = next_auto_update_time(update_interval_seconds)
+            else:
+                draw_history_screen(stdscr, db, current_screen, colors)
 
-        key = read_key(stdscr)
-        if key in ("q", "Q", "й", "Й"):
-            break
-        if key in (curses.KEY_RIGHT, "l", "L", "д", "Д"):
-            current_screen = next_screen(current_screen, 1)
-        elif key in (curses.KEY_LEFT, "h", "H", "р", "Р"):
-            current_screen = next_screen(current_screen, -1)
-        elif key in ("\n", "\r", " "):
-            # Пробел/Enter - быстрый ручной запуск обновления без листания.
-            current_screen = Screen.UPDATE
+            key = read_key(stdscr)
+            swipe = read_swipe(touch_reader)
 
-        time.sleep(0.08)
+            if key in ("q", "Q", "й", "Й"):
+                break
+            if key in (curses.KEY_RIGHT, "l", "L", "д", "Д") or swipe == SWIPE_LEFT:
+                current_screen = next_screen(current_screen, 1)
+            elif key in (curses.KEY_LEFT, "h", "H", "р", "Р") or swipe == SWIPE_RIGHT:
+                current_screen = next_screen(current_screen, -1)
+            elif key in ("\n", "\r", " "):
+                # Пробел/Enter - быстрый ручной запуск обновления без листания.
+                current_screen = Screen.UPDATE
+
+            time.sleep(0.08)
+    finally:
+        if touch_reader is not None:
+            touch_reader.close()
