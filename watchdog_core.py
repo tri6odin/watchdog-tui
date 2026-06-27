@@ -88,9 +88,7 @@ SERVICES: Dict[str, Service] = {
     "NAS": Service("NAS", "NAS"),
 }
 
-# Порядок обновления и прогресс-бара. Он одновременно учитывает привычный
-# визуальный порядок и зависимости: HAOS идет до ZIGBEE, чтобы ZIGBEE можно
-# было пометить UNKNOWN при падении HAOS.
+# Порядок обновления и прогресс-бара повторяет привычный визуальный порядок.
 CHECK_ORDER = [
     "LCL NET",
     "INT NET",
@@ -562,10 +560,6 @@ def should_skip_by_dependency(service: str, results: Mapping[str, Status]) -> bo
     """Проверить, нужно ли пометить сервис UNKNOWN из-за зависимости."""
 
     if service != "LCL NET" and results.get("LCL NET") == Status.FAIL:
-        return True
-    if service == "VPN" and results.get("INT NET") == Status.FAIL:
-        return True
-    if service == "ZIGBEE" and results.get("HAOS") == Status.FAIL:
         return True
     return False
 

@@ -152,25 +152,25 @@ smb_share = BACKUP
         for service in CHECK_ORDER[1:]:
             self.assertEqual(results[service], Status.UNKNOWN)
 
-    def test_int_net_failure_makes_vpn_unknown_only(self):
+    def test_int_net_failure_does_not_skip_vpn(self):
         checkers = {service: (lambda: True) for service in CHECK_ORDER}
         checkers["INT NET"] = lambda: False
 
         results = run_service_checks(checkers=checkers, step_delay_seconds=0)
 
         self.assertEqual(results["INT NET"], Status.FAIL)
-        self.assertEqual(results["VPN"], Status.UNKNOWN)
+        self.assertEqual(results["VPN"], Status.OK)
         self.assertEqual(results["HAOS"], Status.OK)
         self.assertEqual(results["ZIGBEE"], Status.OK)
 
-    def test_haos_failure_makes_zigbee_unknown(self):
+    def test_haos_failure_does_not_skip_zigbee(self):
         checkers = {service: (lambda: True) for service in CHECK_ORDER}
         checkers["HAOS"] = lambda: False
 
         results = run_service_checks(checkers=checkers, step_delay_seconds=0)
 
         self.assertEqual(results["HAOS"], Status.FAIL)
-        self.assertEqual(results["ZIGBEE"], Status.UNKNOWN)
+        self.assertEqual(results["ZIGBEE"], Status.OK)
         self.assertEqual(results["WIFI"], Status.OK)
 
     def test_sqlite_history_uses_empty_cells_for_missing_data(self):
