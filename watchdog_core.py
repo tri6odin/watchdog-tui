@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 import subprocess
 import socket
+import ssl
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -87,26 +88,27 @@ SERVICES: Dict[str, Service] = {
     "NAS": Service("NAS", "NAS"),
 }
 
-# Порядок проверки из ТЗ. Он отличается от порядка отображения на экране,
-# потому что в нем важны зависимости: например, HAOS должен проверяться до
-# ZIGBEE, чтобы ZIGBEE можно было пометить UNKNOWN при падении HAOS.
+# Порядок обновления и прогресс-бара. Он одновременно учитывает привычный
+# визуальный порядок и зависимости: HAOS идет до ZIGBEE, чтобы ZIGBEE можно
+# было пометить UNKNOWN при падении HAOS.
 CHECK_ORDER = [
     "LCL NET",
     "INT NET",
     "VPN",
-    "HAOS",
-    "ZIGBEE",
     "WIFI",
     "IOT WIFI",
     "NAS",
+    "HAOS",
+    "ZIGBEE",
 ]
 
-# Порядок строк в историческом интерфейсе строго повторяет ASCII-макет из ТЗ.
+# Исторические экраны читаются колонками: слева первые четыре сервиса, справа
+# следующие четыре. Так получается тот же порядок, что и у обновления.
 DISPLAY_ROWS = [
     ("LCL NET", "IOT WIFI"),
-    ("INT NET", "ZIGBEE"),
+    ("INT NET", "NAS"),
     ("VPN", "HAOS"),
-    ("WIFI", "NAS"),
+    ("WIFI", "ZIGBEE"),
 ]
 
 CAROUSEL = [Screen.WEEKS, Screen.DAYS, Screen.HOURS, Screen.UPDATE]
@@ -323,6 +325,30 @@ def check_tcp_port(host: str, port: int, timeout_seconds: float) -> bool:
         return False
 
 
+def check_tls_handshake(host: str, port: int, timeout_seconds: float) -> bool:
+    """Проверить TCP-connect и TLS handshake с SNI.
+
+    Для VPN нам важен сам факт, что целевой сервис доступен через туннель и
+    отвечает на TLS, а не то, какую HTML/HTTP-страницу отдаст Instagram.
+    """
+
+    hard_timeout = max(0.001, timeout_seconds)
+    deadline = time.monotonic() + hard_timeout
+    try:
+        raw_socket = socket.create_connection((host, port), timeout=hard_timeout)
+        with raw_socket:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            raw_socket.settimeout(max(0.001, remaining))
+
+            context = ssl.create_default_context()
+            with context.wrap_socket(raw_socket, server_hostname=host):
+                return True
+    except (OSError, TimeoutError, ssl.SSLError):
+        return False
+
+
 def smb_share_is_listed(smbutil_output: str, share_name: str) -> bool:
     """Проверить, что smbutil view показал нужную шару.
 
@@ -392,24 +418,24 @@ def check_lcl_net() -> bool:
 
 
 def check_INT_net() -> bool:
-    """Проверка внешнего интернета через HTTPS-ответ от ya.ru."""
+    """Проверка внешнего интернета через TLS handshake до ya.ru."""
 
     config = require_runtime_config()
-    return check_http_endpoint(
-        config.int_net.address,
+    return check_tls_handshake(
+        config.int_net.host,
+        config.int_net.port,
         config.int_net.timeout_seconds,
-        config.global_config.http_user_agent,
     )
 
 
 def check_vpn() -> bool:
-    """Проверка VPN-доступа через HTTPS-ответ от instagram.com."""
+    """Проверка VPN-доступа через TLS handshake до instagram.com."""
 
     config = require_runtime_config()
-    return check_http_endpoint(
-        config.vpn.address,
+    return check_tls_handshake(
+        config.vpn.host,
+        config.vpn.port,
         config.vpn.timeout_seconds,
-        config.global_config.http_user_agent,
     )
 
 

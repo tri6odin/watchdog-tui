@@ -31,8 +31,9 @@ class PingConfig:
 
 
 @dataclass(frozen=True)
-class HttpConfig:
-    address: str
+class TlsConfig:
+    host: str
+    port: int
     timeout_seconds: float
 
 
@@ -59,8 +60,8 @@ class NasConfig:
 class WatchdogConfig:
     global_config: GlobalConfig
     lcl_net: PingConfig
-    int_net: HttpConfig
-    vpn: HttpConfig
+    int_net: TlsConfig
+    vpn: TlsConfig
     haos: HaosConfig
     nas: NasConfig
 
@@ -88,12 +89,14 @@ def load_watchdog_config(path: Path = DEFAULT_CONFIG_PATH) -> WatchdogConfig:
             address=_get_str(parser, "lcl_net", "address"),
             timeout_seconds=_get_float(parser, "lcl_net", "timeout_seconds"),
         ),
-        int_net=HttpConfig(
-            address=_get_str(parser, "int_net", "address"),
+        int_net=TlsConfig(
+            host=_get_str(parser, "int_net", "host"),
+            port=_get_int(parser, "int_net", "port"),
             timeout_seconds=_get_float(parser, "int_net", "timeout_seconds"),
         ),
-        vpn=HttpConfig(
-            address=_get_str(parser, "vpn", "address"),
+        vpn=TlsConfig(
+            host=_get_str(parser, "vpn", "host"),
+            port=_get_int(parser, "vpn", "port"),
             timeout_seconds=_get_float(parser, "vpn", "timeout_seconds"),
         ),
         haos=HaosConfig(
