@@ -40,6 +40,7 @@ class TlsConfig:
 @dataclass(frozen=True)
 class HaosConfig:
     address: str
+    port: int
     api_path: str
     timeout_seconds: float
     token: str
@@ -101,6 +102,7 @@ def load_watchdog_config(path: Path = DEFAULT_CONFIG_PATH) -> WatchdogConfig:
         ),
         haos=HaosConfig(
             address=_get_str(parser, "haos", "address"),
+            port=_get_int(parser, "haos", "port"),
             api_path=_get_str(parser, "haos", "api_path"),
             timeout_seconds=_get_float(parser, "haos", "timeout_seconds"),
             token=_get_str(parser, "haos", "token"),

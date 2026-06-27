@@ -254,7 +254,8 @@ def curl_config_value(value: str) -> str:
 
 
 def check_home_assistant_api(
-    base_url: str,
+    address: str,
+    port: int,
     token: str,
     api_path: str,
     timeout_seconds: float,
@@ -271,7 +272,7 @@ def check_home_assistant_api(
 
     hard_timeout = max(0.001, timeout_seconds)
     timeout_arg = f"{hard_timeout:.3f}"
-    url = join_url(base_url, api_path)
+    url = join_url(f"http://{address}:{port}", api_path)
     curl_config = (
         f'header = "Authorization: Bearer {curl_config_value(token)}"\n'
         'header = "Accept: application/json"\n'
@@ -463,6 +464,7 @@ def check_haos() -> bool:
     config = require_runtime_config()
     return check_home_assistant_api(
         config.haos.address,
+        config.haos.port,
         config.haos.token,
         config.haos.api_path,
         config.haos.timeout_seconds,

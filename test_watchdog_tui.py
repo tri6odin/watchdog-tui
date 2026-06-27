@@ -46,7 +46,8 @@ def make_test_config() -> WatchdogConfig:
         int_net=TlsConfig(host="ya.ru", port=443, timeout_seconds=1.0),
         vpn=TlsConfig(host="instagram.com", port=443, timeout_seconds=5.0),
         haos=HaosConfig(
-            address="http://192.168.50.4:8123",
+            address="192.168.50.4",
+            port=8123,
             api_path="/api/config",
             timeout_seconds=2.0,
             token="ha-token",
@@ -87,7 +88,8 @@ port = 443
 timeout_seconds = 5.0
 
 [haos]
-address = http://192.168.50.4:8123
+address = 192.168.50.4
+port = 8123
 api_path = /api/config
 timeout_seconds = 2.0
 token = test-token
@@ -112,6 +114,8 @@ smb_share = BACKUP
         self.assertEqual(config.int_net.port, 443)
         self.assertEqual(config.vpn.host, "instagram.com")
         self.assertEqual(config.vpn.port, 443)
+        self.assertEqual(config.haos.address, "192.168.50.4")
+        self.assertEqual(config.haos.port, 8123)
         self.assertEqual(config.haos.token, "test-token")
         self.assertEqual(config.nas.smb_share, "BACKUP")
 
@@ -286,7 +290,8 @@ smb_share = BACKUP
 
             self.assertTrue(
                 check_home_assistant_api(
-                    "http://192.168.50.4:8123",
+                    "192.168.50.4",
+                    8123,
                     "secret-token",
                     "/api/config",
                     2.0,
@@ -309,7 +314,8 @@ smb_share = BACKUP
 
             self.assertFalse(
                 check_home_assistant_api(
-                    "http://192.168.50.4:8123",
+                    "192.168.50.4",
+                    8123,
                     "bad-token",
                     "/api/config",
                     2.0,
@@ -345,6 +351,7 @@ smb_share = BACKUP
             self.assertTrue(check_haos())
             haos.assert_called_once_with(
                 config.haos.address,
+                config.haos.port,
                 config.haos.token,
                 config.haos.api_path,
                 config.haos.timeout_seconds,
