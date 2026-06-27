@@ -1,19 +1,20 @@
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 
 from watchdog_config import (
     GlobalConfig,
     HaosConfig,
-    HttpConfig,
     NasConfig,
     PingConfig,
+    TlsConfig,
     WatchdogConfig,
     load_watchdog_config,
 )
 from watchdog_core import (
     CHECK_ORDER,
+    DISPLAY_ROWS,
     Screen,
     Status,
     TEN_MINUTES,
@@ -27,6 +28,7 @@ from watchdog_core import (
     check_nas,
     check_smb_share_macos,
     check_tcp_port,
+    check_tls_handshake,
     check_vpn,
     configure_checks,
     ping_host_macos,
@@ -41,8 +43,8 @@ def make_test_config() -> WatchdogConfig:
     return WatchdogConfig(
         global_config=GlobalConfig(http_user_agent="watchdog-test/1.0"),
         lcl_net=PingConfig(address="192.168.50.1", timeout_seconds=1.0),
-        int_net=HttpConfig(address="https://ya.ru/", timeout_seconds=1.0),
-        vpn=HttpConfig(address="https://www.instagram.com/", timeout_seconds=5.0),
+        int_net=TlsConfig(host="ya.ru", port=443, timeout_seconds=1.0),
+        vpn=TlsConfig(host="instagram.com", port=443, timeout_seconds=5.0),
         haos=HaosConfig(
             address="http://192.168.50.4:8123",
             api_path="/api/config",
@@ -75,11 +77,13 @@ address = 192.168.50.1
 timeout_seconds = 1.0
 
 [int_net]
-address = https://ya.ru/
+host = ya.ru
+port = 443
 timeout_seconds = 1.0
 
 [vpn]
-address = https://www.instagram.com/
+host = instagram.com
+port = 443
 timeout_seconds = 5.0
 
 [haos]
@@ -104,7 +108,10 @@ smb_share = BACKUP
 
         self.assertEqual(config.global_config.http_user_agent, "watchdog-test/1.0")
         self.assertEqual(config.lcl_net.address, "192.168.50.1")
-        self.assertEqual(config.int_net.address, "https://ya.ru/")
+        self.assertEqual(config.int_net.host, "ya.ru")
+        self.assertEqual(config.int_net.port, 443)
+        self.assertEqual(config.vpn.host, "instagram.com")
+        self.assertEqual(config.vpn.port, 443)
         self.assertEqual(config.haos.token, "test-token")
         self.assertEqual(config.nas.smb_share, "BACKUP")
 
@@ -113,6 +120,23 @@ smb_share = BACKUP
         self.assertEqual(aggregate_statuses([Status.OK, Status.OK]), Status.OK)
         self.assertEqual(aggregate_statuses([Status.OK, Status.UNKNOWN]), Status.UNKNOWN)
         self.assertEqual(aggregate_statuses([Status.OK, Status.FAIL, Status.UNKNOWN]), Status.FAIL)
+
+    def test_service_order_matches_watchdog_layout(self):
+        expected_order = [
+            "LCL NET",
+            "INT NET",
+            "VPN",
+            "WIFI",
+            "IOT WIFI",
+            "NAS",
+            "HAOS",
+            "ZIGBEE",
+        ]
+
+        display_order = [row[0] for row in DISPLAY_ROWS] + [row[1] for row in DISPLAY_ROWS]
+
+        self.assertEqual(CHECK_ORDER, expected_order)
+        self.assertEqual(display_order, expected_order)
 
     def test_lcl_net_failure_makes_everything_else_unknown(self):
         checkers = {service: (lambda: True) for service in CHECK_ORDER}
@@ -239,6 +263,22 @@ smb_share = BACKUP
 
             self.assertFalse(check_http_endpoint("https://ya.ru/", 5.0, "watchdog-test/1.0"))
 
+    def test_tls_handshake_uses_socket_ssl_and_sni(self):
+        raw_socket = MagicMock()
+        ssl_context = MagicMock()
+        tls_socket = MagicMock()
+        ssl_context.wrap_socket.return_value = tls_socket
+
+        with patch("watchdog_core.socket.create_connection", return_value=raw_socket) as create_connection:
+            with patch("watchdog_core.ssl.create_default_context", return_value=ssl_context):
+                self.assertTrue(check_tls_handshake("instagram.com", 443, 5.0))
+
+        create_connection.assert_called_once_with(("instagram.com", 443), timeout=5.0)
+        raw_socket.settimeout.assert_called_once()
+        self.assertGreater(raw_socket.settimeout.call_args.args[0], 0)
+        self.assertLessEqual(raw_socket.settimeout.call_args.args[0], 5.0)
+        ssl_context.wrap_socket.assert_called_once_with(raw_socket, server_hostname="instagram.com")
+
     def test_home_assistant_api_uses_token_via_stdin_config(self):
         with patch("watchdog_core.subprocess.run") as run:
             run.return_value.returncode = 0
@@ -285,20 +325,20 @@ smb_share = BACKUP
             self.assertTrue(check_lcl_net())
             ping.assert_called_once_with(config.lcl_net.address, config.lcl_net.timeout_seconds)
 
-        with patch("watchdog_core.check_http_endpoint", return_value=True) as http:
+        with patch("watchdog_core.check_tls_handshake", return_value=True) as tls:
             self.assertTrue(check_INT_net())
-            http.assert_called_once_with(
-                config.int_net.address,
+            tls.assert_called_once_with(
+                config.int_net.host,
+                config.int_net.port,
                 config.int_net.timeout_seconds,
-                config.global_config.http_user_agent,
             )
 
-        with patch("watchdog_core.check_http_endpoint", return_value=True) as http:
+        with patch("watchdog_core.check_tls_handshake", return_value=True) as tls:
             self.assertTrue(check_vpn())
-            http.assert_called_once_with(
-                config.vpn.address,
+            tls.assert_called_once_with(
+                config.vpn.host,
+                config.vpn.port,
                 config.vpn.timeout_seconds,
-                config.global_config.http_user_agent,
             )
 
         with patch("watchdog_core.check_home_assistant_api", return_value=True) as haos:
