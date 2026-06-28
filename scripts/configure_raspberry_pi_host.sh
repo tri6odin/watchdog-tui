@@ -259,7 +259,7 @@ write_watchdog_config() {
     nas_pass=$(ask_required_secret "NAS SMB password")
     nas_share=$(ask "NAS SMB share" "BACKUP")
 
-    wifi_ssid=$(ask "Main Wi-Fi SSID" "example-wifi")
+    wifi_ssid=$(ask "Main Wi-Fi network name (SSID)" "example-wifi")
     wifi_pass=$(ask_required_secret "Main Wi-Fi password")
     wifi_gateway=$(ask "Main Wi-Fi gateway" "$lcl_net_address")
     wifi_interface=$(ask "Main Wi-Fi interface" "auto")
@@ -267,7 +267,7 @@ write_watchdog_config() {
     wifi_ping_timeout=$(ask "Main Wi-Fi ping timeout seconds" "1.0")
     wifi_disconnect_after=$(ask "Main Wi-Fi disconnect after check" "true")
 
-    iot_wifi_ssid=$(ask "IoT Wi-Fi SSID" "example-iot")
+    iot_wifi_ssid=$(ask "IoT Wi-Fi network name (SSID)" "example-iot")
     iot_wifi_pass=$(ask_secret "IoT Wi-Fi password (empty = same as main Wi-Fi)")
     if [ -z "$iot_wifi_pass" ]; then
         iot_wifi_pass=$wifi_pass
@@ -278,11 +278,11 @@ write_watchdog_config() {
     iot_wifi_ping_timeout=$(ask "IoT Wi-Fi ping timeout seconds" "1.0")
     iot_wifi_disconnect_after=$(ask "IoT Wi-Fi disconnect after check" "true")
 
-    touch_enabled=$(ask "Touchscreen enabled" "true")
-    touch_event_device=$(ask "Touchscreen event device" "auto")
-    touch_swipe_min_dx=$(ask "Touchscreen swipe min dx" "1200")
-    touch_swipe_max_dt=$(ask "Touchscreen swipe max dt seconds" "2.2")
-    touch_swipe_ratio=$(ask "Touchscreen horizontal ratio" "1.1")
+    touch_enabled=true
+    touch_event_device=auto
+    touch_swipe_min_dx=1200
+    touch_swipe_max_dt=2.2
+    touch_swipe_ratio=1.1
 
     old_umask=$(umask)
     umask 077

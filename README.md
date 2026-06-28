@@ -29,7 +29,10 @@ sudo scripts/configure_raspberry_pi_host.sh
 ```
 
 Скрипт спросит адреса, таймауты и секреты: Home Assistant token, NAS SMB
-учетку, Wi-Fi пароли и touch-настройки. Секреты вводятся без эха в терминал.
+учетку, имена Wi-Fi сетей (SSID) и Wi-Fi пароли. Секреты вводятся без эха в
+терминал. Touch-настройки не спрашиваются: в конфиг записываются текущие
+дефолты `enabled = true`, `event_device = auto`, `swipe_min_dx = 1200`,
+`swipe_max_dt_sec = 2.2`, `swipe_horizontal_ratio = 1.1`.
 
 При желании проверь созданный конфиг:
 
