@@ -26,6 +26,7 @@ KMSCON_FONT_DPI="${KMSCON_FONT_DPI:-96}"
 REMOVE_BOOKWORM_AFTER_INSTALL="${REMOVE_BOOKWORM_AFTER_INSTALL:-1}"
 CONFIGURE_WATCHDOG_CONF="${CONFIGURE_WATCHDOG_CONF:-1}"
 OVERWRITE_WATCHDOG_CONF="${OVERWRITE_WATCHDOG_CONF:-0}"
+ADVANCED_WATCHDOG_CONF="${ADVANCED_WATCHDOG_CONF:-0}"
 
 SCRIPT_DIR=$(
     CDPATH= cd -- "$(dirname -- "$0")"
@@ -232,57 +233,81 @@ write_watchdog_config() {
 
     log "Creating watchdog config at $WATCHDOG_CONFIG_PATH"
 
-    global_http_user_agent=$(ask "HTTP user agent" "watchdog-tui/1.0")
-
     lcl_net_address=$(ask "Local gateway address" "192.168.50.1")
-    lcl_net_timeout=$(ask "Local ping timeout seconds" "1.0")
-
     int_net_host=$(ask "Internet TLS host" "ya.ru")
-    int_net_port=$(ask "Internet TLS port" "443")
-    int_net_timeout=$(ask "Internet TLS timeout seconds" "1.0")
-
     vpn_host=$(ask "VPN TLS host" "instagram.com")
-    vpn_port=$(ask "VPN TLS port" "443")
-    vpn_timeout=$(ask "VPN TLS timeout seconds" "5.0")
 
     haos_address=$(ask "Home Assistant address" "192.168.50.4")
-    haos_port=$(ask "Home Assistant port" "8123")
-    haos_api_path=$(ask "Home Assistant API path" "/api/config")
-    haos_timeout=$(ask "Home Assistant timeout seconds" "2.0")
     haos_token=$(ask_required_secret "Home Assistant long-lived token")
 
     nas_address=$(ask "NAS address" "192.168.50.3")
-    nas_port=$(ask "NAS SMB port" "445")
-    nas_tcp_timeout=$(ask "NAS TCP timeout seconds" "1.0")
-    nas_smb_timeout=$(ask "NAS SMB timeout seconds" "5.0")
     nas_user=$(ask "NAS SMB user" "watchdog")
     nas_pass=$(ask_required_secret "NAS SMB password")
     nas_share=$(ask "NAS SMB share" "BACKUP")
 
     wifi_ssid=$(ask "Main Wi-Fi network name (SSID)" "example-wifi")
     wifi_pass=$(ask_required_secret "Main Wi-Fi password")
-    wifi_gateway=$(ask "Main Wi-Fi gateway" "$lcl_net_address")
-    wifi_interface=$(ask "Main Wi-Fi interface" "auto")
-    wifi_connect_timeout=$(ask "Main Wi-Fi connect timeout seconds" "25.0")
-    wifi_ping_timeout=$(ask "Main Wi-Fi ping timeout seconds" "1.0")
-    wifi_disconnect_after=$(ask "Main Wi-Fi disconnect after check" "true")
 
     iot_wifi_ssid=$(ask "IoT Wi-Fi network name (SSID)" "example-iot")
     iot_wifi_pass=$(ask_secret "IoT Wi-Fi password (empty = same as main Wi-Fi)")
     if [ -z "$iot_wifi_pass" ]; then
         iot_wifi_pass=$wifi_pass
     fi
-    iot_wifi_gateway=$(ask "IoT Wi-Fi gateway" "$lcl_net_address")
-    iot_wifi_interface=$(ask "IoT Wi-Fi interface" "auto")
-    iot_wifi_connect_timeout=$(ask "IoT Wi-Fi connect timeout seconds" "25.0")
-    iot_wifi_ping_timeout=$(ask "IoT Wi-Fi ping timeout seconds" "1.0")
-    iot_wifi_disconnect_after=$(ask "IoT Wi-Fi disconnect after check" "true")
+
+    global_http_user_agent=watchdog-tui/1.0
+    lcl_net_timeout=1.0
+    int_net_port=443
+    int_net_timeout=1.0
+    vpn_port=443
+    vpn_timeout=5.0
+    haos_port=8123
+    haos_api_path=/api/config
+    haos_timeout=2.0
+    nas_port=445
+    nas_tcp_timeout=1.0
+    nas_smb_timeout=5.0
+    wifi_gateway=$lcl_net_address
+    wifi_interface=auto
+    wifi_connect_timeout=25.0
+    wifi_ping_timeout=1.0
+    wifi_disconnect_after=true
+    iot_wifi_gateway=$lcl_net_address
+    iot_wifi_interface=auto
+    iot_wifi_connect_timeout=25.0
+    iot_wifi_ping_timeout=1.0
+    iot_wifi_disconnect_after=true
 
     touch_enabled=true
     touch_event_device=auto
     touch_swipe_min_dx=1200
     touch_swipe_max_dt=2.2
     touch_swipe_ratio=1.1
+
+    if [ "$ADVANCED_WATCHDOG_CONF" = "1" ]; then
+        log "Advanced config prompts enabled"
+        global_http_user_agent=$(ask "HTTP user agent" "$global_http_user_agent")
+        lcl_net_timeout=$(ask "Local ping timeout seconds" "$lcl_net_timeout")
+        int_net_port=$(ask "Internet TLS port" "$int_net_port")
+        int_net_timeout=$(ask "Internet TLS timeout seconds" "$int_net_timeout")
+        vpn_port=$(ask "VPN TLS port" "$vpn_port")
+        vpn_timeout=$(ask "VPN TLS timeout seconds" "$vpn_timeout")
+        haos_port=$(ask "Home Assistant port" "$haos_port")
+        haos_api_path=$(ask "Home Assistant API path" "$haos_api_path")
+        haos_timeout=$(ask "Home Assistant timeout seconds" "$haos_timeout")
+        nas_port=$(ask "NAS SMB port" "$nas_port")
+        nas_tcp_timeout=$(ask "NAS TCP timeout seconds" "$nas_tcp_timeout")
+        nas_smb_timeout=$(ask "NAS SMB timeout seconds" "$nas_smb_timeout")
+        wifi_gateway=$(ask "Main Wi-Fi gateway" "$wifi_gateway")
+        wifi_interface=$(ask "Main Wi-Fi interface" "$wifi_interface")
+        wifi_connect_timeout=$(ask "Main Wi-Fi connect timeout seconds" "$wifi_connect_timeout")
+        wifi_ping_timeout=$(ask "Main Wi-Fi ping timeout seconds" "$wifi_ping_timeout")
+        wifi_disconnect_after=$(ask "Main Wi-Fi disconnect after check" "$wifi_disconnect_after")
+        iot_wifi_gateway=$(ask "IoT Wi-Fi gateway" "$iot_wifi_gateway")
+        iot_wifi_interface=$(ask "IoT Wi-Fi interface" "$iot_wifi_interface")
+        iot_wifi_connect_timeout=$(ask "IoT Wi-Fi connect timeout seconds" "$iot_wifi_connect_timeout")
+        iot_wifi_ping_timeout=$(ask "IoT Wi-Fi ping timeout seconds" "$iot_wifi_ping_timeout")
+        iot_wifi_disconnect_after=$(ask "IoT Wi-Fi disconnect after check" "$iot_wifi_disconnect_after")
+    fi
 
     old_umask=$(umask)
     umask 077

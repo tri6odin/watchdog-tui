@@ -55,10 +55,22 @@ cd watchdog-tui
 sudo scripts/configure_raspberry_pi_host.sh
 ```
 
-Скрипт спросит адреса, таймауты и секреты: Home Assistant token, NAS SMB
+Скрипт спросит только поля, которые обычно отличаются от дома к дому: адрес
+шлюза, host для проверки обычного интернета (`ya.ru` по умолчанию), host для
+проверки VPN (`instagram.com` по умолчанию), Home Assistant IP/token, NAS SMB
 учетку, имена Wi-Fi сетей (SSID) и Wi-Fi пароли. Секреты вводятся без эха в
-терминал. Touch-настройки не спрашиваются: в конфиг записываются текущие
-дефолты `enabled = true`, `event_device = auto`, `swipe_min_dx = 1200`,
+терминал.
+
+Порты, таймауты, Home Assistant API path, Wi-Fi interface и прочие технические
+поля заполняются дефолтами. Если нужно пройтись по ним руками во время
+установки:
+
+```bash
+sudo env ADVANCED_WATCHDOG_CONF=1 scripts/configure_raspberry_pi_host.sh
+```
+
+Touch-настройки не спрашиваются и в расширенном режиме: в конфиг записываются
+текущие дефолты `enabled = true`, `event_device = auto`, `swipe_min_dx = 1200`,
 `swipe_max_dt_sec = 2.2`, `swipe_horizontal_ratio = 1.1`.
 
 При желании проверь созданный конфиг:
@@ -100,6 +112,7 @@ sudo systemctl restart kmsconvt@tty1
 APP_DIR=<текущая папка репозитория>
 WATCHDOG_CONFIG_PATH=$APP_DIR/watchdog.conf
 RUNNER_PATH=/usr/local/bin/kmscon-watchdog
+ADVANCED_WATCHDOG_CONF=0
 ```
 
 Если путь другой:
@@ -121,6 +134,28 @@ sudo env OVERWRITE_WATCHDOG_CONF=1 scripts/configure_raspberry_pi_host.sh
 sudo env CONFIGURE_WATCHDOG_CONF=0 scripts/configure_raspberry_pi_host.sh
 cp watchdog.example.conf watchdog.conf
 nano watchdog.conf
+```
+
+Обычный интерактивный setup спрашивает:
+
+```text
+Local gateway address
+Internet TLS host
+VPN TLS host
+Home Assistant address
+Home Assistant long-lived token
+NAS address
+NAS SMB user/password/share
+Main Wi-Fi SSID/password
+IoT Wi-Fi SSID/password
+```
+
+Остальное заполняется дефолтами. Расширенный режим добавляет вопросы про
+порты, таймауты, Home Assistant API path, Wi-Fi interface/gateway и
+`disconnect_after_check`:
+
+```bash
+sudo env ADVANCED_WATCHDOG_CONF=1 scripts/configure_raspberry_pi_host.sh
 ```
 
 Скрипт ставит базовые пакеты:
