@@ -58,6 +58,17 @@ class NasConfig:
 
 
 @dataclass(frozen=True)
+class WifiConfig:
+    ssid: str
+    password: str
+    gateway: str
+    interface: str
+    connect_timeout_seconds: float
+    ping_timeout_seconds: float
+    disconnect_after_check: bool
+
+
+@dataclass(frozen=True)
 class TouchConfig:
     enabled: bool
     event_device: str
@@ -74,6 +85,8 @@ class WatchdogConfig:
     vpn: TlsConfig
     haos: HaosConfig
     nas: NasConfig
+    wifi: WifiConfig
+    iot_wifi: WifiConfig
     touch: TouchConfig
 
 
@@ -92,14 +105,16 @@ def load_watchdog_config(path: Path = DEFAULT_CONFIG_PATH) -> WatchdogConfig:
     if not read_files:
         raise ConfigError(f"Файл конфигурации не прочитан: {path}")
 
+    lcl_net = PingConfig(
+        address=_get_str(parser, "lcl_net", "address"),
+        timeout_seconds=_get_float(parser, "lcl_net", "timeout_seconds"),
+    )
+
     return WatchdogConfig(
         global_config=GlobalConfig(
             http_user_agent=_get_str(parser, "global", "http_user_agent"),
         ),
-        lcl_net=PingConfig(
-            address=_get_str(parser, "lcl_net", "address"),
-            timeout_seconds=_get_float(parser, "lcl_net", "timeout_seconds"),
-        ),
+        lcl_net=lcl_net,
         int_net=TlsConfig(
             host=_get_str(parser, "int_net", "host"),
             port=_get_int(parser, "int_net", "port"),
@@ -126,6 +141,8 @@ def load_watchdog_config(path: Path = DEFAULT_CONFIG_PATH) -> WatchdogConfig:
             smb_pass=_get_str(parser, "nas", "smb_pass"),
             smb_share=_get_str(parser, "nas", "smb_share"),
         ),
+        wifi=_load_wifi_config(parser, "wifi", "example-wifi", lcl_net.address),
+        iot_wifi=_load_wifi_config(parser, "iot_wifi", "example-iot", lcl_net.address),
         touch=TouchConfig(
             enabled=_get_bool_default(parser, "touch", "enabled", True),
             event_device=_get_str_default(parser, "touch", "event_device", "auto"),
@@ -139,6 +156,34 @@ def load_watchdog_config(path: Path = DEFAULT_CONFIG_PATH) -> WatchdogConfig:
 def _require_section(parser: configparser.ConfigParser, section: str) -> None:
     if not parser.has_section(section):
         raise ConfigError(f"В конфигурации нет секции [{section}]")
+
+
+def _load_wifi_config(
+    parser: configparser.ConfigParser,
+    section: str,
+    default_ssid: str,
+    default_gateway: str,
+) -> WifiConfig:
+    if not parser.has_section(section):
+        return WifiConfig(
+            ssid=default_ssid,
+            password="",
+            gateway=default_gateway,
+            interface="auto",
+            connect_timeout_seconds=25.0,
+            ping_timeout_seconds=1.0,
+            disconnect_after_check=True,
+        )
+
+    return WifiConfig(
+        ssid=_get_str_default(parser, section, "ssid", default_ssid),
+        password=_get_str(parser, section, "password"),
+        gateway=_get_str_default(parser, section, "gateway", default_gateway),
+        interface=_get_str_default(parser, section, "interface", "auto"),
+        connect_timeout_seconds=_get_float_default(parser, section, "connect_timeout_seconds", 25.0),
+        ping_timeout_seconds=_get_float_default(parser, section, "ping_timeout_seconds", 1.0),
+        disconnect_after_check=_get_bool_default(parser, section, "disconnect_after_check", True),
+    )
 
 
 def _get_str(parser: configparser.ConfigParser, section: str, option: str) -> str:

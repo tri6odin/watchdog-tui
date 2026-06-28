@@ -10,6 +10,7 @@ from watchdog_config import (
     PingConfig,
     TouchConfig,
     TlsConfig,
+    WifiConfig,
     WatchdogConfig,
     load_watchdog_config,
 )
@@ -41,7 +42,10 @@ from watchdog_core import (
     check_tcp_port,
     check_tls_handshake,
     check_vpn,
+    check_wifi,
+    check_wifi_network_linux,
     configure_checks,
+    detect_wifi_interface_linux,
     ping_host_linux,
     run_service_checks,
     seconds_until_next_history_bucket,
@@ -71,6 +75,24 @@ def make_test_config() -> WatchdogConfig:
             smb_user="watchdog",
             smb_pass="test-smb-pass",
             smb_share="BACKUP",
+        ),
+        wifi=WifiConfig(
+            ssid="example-wifi",
+            password="test-wifi-pass",
+            gateway="192.168.50.1",
+            interface="auto",
+            connect_timeout_seconds=25.0,
+            ping_timeout_seconds=1.0,
+            disconnect_after_check=True,
+        ),
+        iot_wifi=WifiConfig(
+            ssid="example-iot",
+            password="test-wifi-pass",
+            gateway="192.168.50.1",
+            interface="auto",
+            connect_timeout_seconds=25.0,
+            ping_timeout_seconds=1.0,
+            disconnect_after_check=True,
         ),
         touch=TouchConfig(
             enabled=True,
@@ -121,6 +143,24 @@ smb_user = watchdog
 smb_pass = test-pass
 smb_share = BACKUP
 
+[wifi]
+ssid = example-wifi
+password = test-wifi-pass
+gateway = 192.168.50.1
+interface = auto
+connect_timeout_seconds = 25.0
+ping_timeout_seconds = 1.0
+disconnect_after_check = true
+
+[iot_wifi]
+ssid = example-iot
+password = test-wifi-pass
+gateway = 192.168.50.1
+interface = auto
+connect_timeout_seconds = 25.0
+ping_timeout_seconds = 1.0
+disconnect_after_check = true
+
 [touch]
 enabled = true
 event_device = auto
@@ -143,6 +183,11 @@ swipe_horizontal_ratio = 1.1
         self.assertEqual(config.haos.port, 8123)
         self.assertEqual(config.haos.token, "test-token")
         self.assertEqual(config.nas.smb_share, "BACKUP")
+        self.assertEqual(config.wifi.ssid, "example-wifi")
+        self.assertEqual(config.wifi.password, "test-wifi-pass")
+        self.assertEqual(config.wifi.gateway, "192.168.50.1")
+        self.assertEqual(config.iot_wifi.ssid, "example-iot")
+        self.assertEqual(config.iot_wifi.gateway, "192.168.50.1")
         self.assertTrue(config.touch.enabled)
         self.assertEqual(config.touch.event_device, "auto")
         self.assertEqual(config.touch.swipe_min_dx, 1200)
@@ -302,6 +347,15 @@ B: EV=120013
             self.assertEqual(args, ["ping", "-c", "1", "-W", "1", "192.168.50.1"])
             self.assertEqual(run.call_args.kwargs["timeout"], 1.0)
 
+    def test_ping_host_can_pin_wifi_interface(self):
+        with patch("watchdog_core.subprocess.run") as run:
+            run.return_value.returncode = 0
+
+            self.assertTrue(ping_host_linux("192.168.50.1", 1.0, interface="wlan0"))
+
+            args = run.call_args.args[0]
+            self.assertEqual(args, ["ping", "-c", "1", "-W", "1", "-I", "wlan0", "192.168.50.1"])
+
     def test_http_endpoint_uses_curl_with_hard_timeout(self):
         with patch("watchdog_core.subprocess.run") as run:
             run.return_value.returncode = 0
@@ -417,6 +471,18 @@ B: EV=120013
                 config.global_config.http_user_agent,
             )
 
+        with patch("watchdog_core.check_wifi_network_linux", return_value=True) as wifi:
+            self.assertTrue(check_wifi())
+            wifi.assert_called_once_with(
+                config.wifi.ssid,
+                config.wifi.password,
+                config.wifi.gateway,
+                config.wifi.interface,
+                config.wifi.connect_timeout_seconds,
+                config.wifi.ping_timeout_seconds,
+                config.wifi.disconnect_after_check,
+            )
+
     def test_tcp_port_check_uses_configured_timeout(self):
         connection = patch("watchdog_core.socket.create_connection")
         with connection as create_connection:
@@ -452,6 +518,39 @@ homes                                           Disk
             self.assertNotIn("test-smb-pass", args)
             self.assertEqual(run.call_args.kwargs["env"]["PASSWD"], "test-smb-pass")
             self.assertEqual(run.call_args.kwargs["timeout"], 5.0)
+
+    def test_wifi_interface_detection_uses_nmcli_wifi_device(self):
+        with patch("watchdog_core.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "eth0:ethernet:connected\nwlan0:wifi:disconnected\n"
+
+            self.assertEqual(detect_wifi_interface_linux("auto", 5.0), "wlan0")
+
+            args = run.call_args.args[0]
+            self.assertEqual(args, ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "device", "status"])
+
+    def test_wifi_network_check_uses_nmcli_ask_and_pings_via_interface(self):
+        with patch("watchdog_core.detect_wifi_interface_linux", return_value="wlan0") as detect:
+            with patch("watchdog_core.nmcli_run", return_value=True) as nmcli:
+                with patch("watchdog_core.ping_host_linux", return_value=True) as ping:
+                    self.assertTrue(
+                        check_wifi_network_linux(
+                            "example-wifi",
+                            "test-wifi-pass",
+                            "192.168.50.1",
+                            "auto",
+                            25.0,
+                            1.0,
+                            True,
+                        )
+                    )
+
+        detect.assert_called_once_with("auto", 5.0)
+        connect_command = nmcli.call_args_list[1].args[0]
+        self.assertIn("--ask", connect_command)
+        self.assertNotIn("test-wifi-pass", connect_command)
+        self.assertEqual(nmcli.call_args_list[1].kwargs["input_text"], "test-wifi-pass\n")
+        ping.assert_called_once_with("192.168.50.1", 1.0, interface="wlan0")
 
     def test_nas_checker_uses_configured_settings(self):
         config = make_test_config()
