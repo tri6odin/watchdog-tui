@@ -207,7 +207,7 @@ Host-setup скрипт устанавливает его в:
 
 ```text
 font-name=JetBrains Mono Compact
-font-size=18
+font-size=16
 font-dpi=96
 ```
 
