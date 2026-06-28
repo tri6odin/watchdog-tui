@@ -93,16 +93,52 @@ curl --config - --max-time <timeout> --connect-timeout <timeout> http://<address
 Python-зависимости внешними пакетами не ставятся: используются стандартные
 модули `curses`, `sqlite3`, `socket`, `ssl`, `subprocess`.
 
-Системные пакеты для Raspberry Pi/Linux:
+Базовые системные пакеты для Raspberry Pi/Linux:
 
 ```bash
 sudo apt update
-sudo apt install -y git python3 iputils-ping curl smbclient network-manager iw rfkill
+sudo apt install -y git python3 iputils-ping curl smbclient network-manager iw rfkill fontconfig
 ```
 
-Для TUI на `tty1` в текущей установке используется `kmscon`. Если поднимаешь
-малинку с нуля и хочешь такой же полноэкранный консольный режим, нужен пакет
-`kmscon` и systemd override, описанный ниже.
+Для TUI на `tty1` в текущей установке используется `kmscon`. Если пакет
+доступен в текущем дистрибутиве, достаточно:
+
+```bash
+sudo apt install -y kmscon libtsm4 libutempter0
+```
+
+Если `kmscon` недоступен в текущих репозиториях, его можно брать из Debian
+Bookworm с pinning-ом только нужных пакетов:
+
+```bash
+sudo tee /etc/apt/sources.list.d/debian-bookworm.list >/dev/null <<'EOF'
+deb http://deb.debian.org/debian bookworm main
+EOF
+
+sudo tee /etc/apt/preferences.d/99-kmscon-from-bookworm >/dev/null <<'EOF'
+Package: *
+Pin: release n=bookworm
+Pin-Priority: 1
+
+Package: kmscon libtsm4 libutempter0
+Pin: release n=bookworm
+Pin-Priority: 990
+EOF
+
+sudo apt update
+sudo apt install -y kmscon libtsm4 libutempter0
+```
+
+После установки Bookworm-источник можно убрать. Уже установленные пакеты
+останутся в системе, но apt больше не будет видеть Bookworm как источник для
+будущих переустановок или обновлений:
+
+```bash
+sudo rm /etc/apt/sources.list.d/debian-bookworm.list
+sudo rm /etc/apt/preferences.d/99-kmscon-from-bookworm
+sudo apt update
+dpkg -l kmscon libtsm4 libutempter0
+```
 
 ## Установка
 
@@ -250,7 +286,41 @@ sudo usermod -aG input example-wifi
 После этого нужен logout/login или reboot. В текущем варианте автозапуск идет
 от root, поэтому отдельные права на `/dev/input/event*` не требуются.
 
-## Автозапуск на Raspberry Pi
+## KMSCON, шрифт и автозапуск
+
+В репе лежит компактный шрифт для консольного TUI:
+
+```text
+docs/fonts/JetBrainsMono-Compact.ttf
+```
+
+Установить его в систему:
+
+```bash
+sudo mkdir -p /usr/local/share/fonts/JetBrainsMono
+sudo install -m 0644 docs/fonts/JetBrainsMono-Compact.ttf \
+  /usr/local/share/fonts/JetBrainsMono/JetBrainsMono-Compact.ttf
+sudo fc-cache -fv
+```
+
+Проверить имя, которое видит fontconfig:
+
+```bash
+fc-scan --format '%{family[0]} %{style[0]}\n' docs/fonts/JetBrainsMono-Compact.ttf
+```
+
+Для текущего файла ожидаемое семейство: `JetBrains Mono Compact`.
+
+Создать конфиг `kmscon`:
+
+```bash
+sudo mkdir -p /etc/kmscon
+sudo tee /etc/kmscon/kmscon.conf >/dev/null <<'EOF'
+font-name=JetBrains Mono Compact
+font-size=18
+font-dpi=96
+EOF
+```
 
 На текущей Raspberry Pi TUI запускается на `tty1` через `kmsconvt@tty1`.
 Проверить systemd unit:
@@ -268,27 +338,56 @@ systemctl cat kmsconvt@tty1
 Wi-Fi проверки используют `nmcli` для переключения сетей. Обычный пользователь
 может видеть Wi-Fi и делать `ping`, но без дополнительных прав не может
 выполнять `nmcli connection up/down`, `nmcli device disconnect` или
-`nmcli device wifi connect`. Поэтому был выбран простой вариант: запускать сам
+`nmcli device wifi connect`. Поэтому выбран простой вариант: запускать сам
 Watchdog из wrapper-а от root.
 
-`/usr/local/bin/kmscon-watchdog`:
-
-```sh
-#!/bin/sh
-APP_DIR=/home/pi/watchdog-tui
-
-cd "$APP_DIR" || exit 1
-exec /usr/bin/python3 watchdog_tui.py --config "$APP_DIR/watchdog.conf" --db "$APP_DIR/watchdog.sqlite3"
-```
-
-Применить wrapper:
+Создать wrapper:
 
 ```bash
+sudo tee /usr/local/bin/kmscon-watchdog >/dev/null <<'EOF'
+#!/bin/sh
+set -eu
+
+APP_DIR=/home/pi/watchdog-tui
+
+cd "$APP_DIR"
+exec /usr/bin/python3 watchdog_tui.py --config "$APP_DIR/watchdog.conf" --db "$APP_DIR/watchdog.sqlite3"
+EOF
+
 sudo chmod +x /usr/local/bin/kmscon-watchdog
+```
+
+Создать override для `kmsconvt@tty1`:
+
+```bash
+sudo mkdir -p /etc/systemd/system/kmsconvt@tty1.service.d
+sudo tee /etc/systemd/system/kmsconvt@tty1.service.d/override.conf >/dev/null <<'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/kmscon --configdir=/etc/kmscon --vt=tty1 --seats=seat0 --no-switchvt --login -- /usr/local/bin/kmscon-watchdog
+Restart=always
+RestartSec=1
+EOF
+```
+
+Переключить `tty1` на `kmscon`:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl mask --now getty@tty1.service
+sudo systemctl set-default multi-user.target
+sudo systemctl enable --now kmsconvt@tty1
 sudo systemctl restart kmsconvt@tty1
 ```
 
-Проверить проверки без TUI:
+Проверить состояние:
+
+```bash
+systemctl status kmsconvt@tty1 --no-pager -l
+journalctl -u kmsconvt@tty1 -b --no-pager -n 120
+```
+
+Проверить сами проверки без TUI:
 
 ```bash
 sudo python3 watchdog_tui.py --once
