@@ -119,13 +119,6 @@ def draw_history_screen(
     """Нарисовать один из исторических экранов: НЕДЕЛИ, ДНИ или ЧАСЫ."""
 
     stdscr.erase()
-    height, width = stdscr.getmaxyx()
-    if height < 11 or width < TOTAL_WIDTH:
-        message = f"Нужно окно минимум {TOTAL_WIDTH}x11. Сейчас {width}x{height}."
-        addstr_safe(stdscr, 0, 0, message, colors["label"])
-        stdscr.refresh()
-        return
-
     history = db.load_history(screen)
     scale = scale_for_screen(screen)
     scale_line = " " * (1 + LABEL_WIDTH) + scale + " " * (1 + 1 + LABEL_WIDTH) + scale + " " * 2
@@ -171,13 +164,6 @@ def draw_update_screen(
     """
 
     stdscr.erase()
-    height, width = stdscr.getmaxyx()
-    if height < 11 or width < TOTAL_WIDTH:
-        message = f"Нужно окно минимум {TOTAL_WIDTH}x11. Сейчас {width}x{height}."
-        addstr_safe(stdscr, 0, 0, message, colors["label"])
-        stdscr.refresh()
-        return
-
     box_width = 81
     x = (TOTAL_WIDTH - box_width) // 2
     top = "╭" + ("─────────┬" * 7) + "─────────╮"
