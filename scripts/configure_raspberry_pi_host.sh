@@ -6,12 +6,12 @@ set -eu
 # - install bundled JetBrains Mono Compact font
 # - configure KMSCON on tty1
 # - write /usr/local/bin/kmscon-watchdog runner for the cloned repo
+# - optionally create watchdog.conf interactively
 #
-# The script expects the repo to be cloned first. It does not create
-# watchdog.conf and does not start the TUI immediately.
+# The script expects the repo to be cloned first. It does not start the TUI
+# immediately, so watchdog.conf can be verified before KMSCON takes tty1.
 
-APP_USER="${APP_USER:-pi}"
-APP_DIR="${APP_DIR:-/home/$APP_USER/watchdog-tui}"
+APP_DIR="${APP_DIR:-}"
 RUNNER_PATH="${RUNNER_PATH:-/usr/local/bin/kmscon-watchdog}"
 KMSCON_CONF_DIR="${KMSCON_CONF_DIR:-/etc/kmscon}"
 KMSCON_CONF_PATH="${KMSCON_CONF_PATH:-$KMSCON_CONF_DIR/kmscon.conf}"
@@ -24,6 +24,8 @@ KMSCON_FONT_NAME="${KMSCON_FONT_NAME:-}"
 KMSCON_FONT_SIZE="${KMSCON_FONT_SIZE:-18}"
 KMSCON_FONT_DPI="${KMSCON_FONT_DPI:-96}"
 REMOVE_BOOKWORM_AFTER_INSTALL="${REMOVE_BOOKWORM_AFTER_INSTALL:-1}"
+CONFIGURE_WATCHDOG_CONF="${CONFIGURE_WATCHDOG_CONF:-1}"
+OVERWRITE_WATCHDOG_CONF="${OVERWRITE_WATCHDOG_CONF:-0}"
 
 SCRIPT_DIR=$(
     CDPATH= cd -- "$(dirname -- "$0")"
@@ -33,7 +35,11 @@ REPO_DIR=$(
     CDPATH= cd -- "$SCRIPT_DIR/.."
     pwd
 )
+if [ -z "$APP_DIR" ]; then
+    APP_DIR="$REPO_DIR"
+fi
 FONT_SOURCE="${FONT_SOURCE:-$REPO_DIR/docs/fonts/JetBrainsMono-Compact.ttf}"
+WATCHDOG_CONFIG_PATH="${WATCHDOG_CONFIG_PATH:-$APP_DIR/watchdog.conf}"
 
 log() {
     printf '%s\n' "$*" >&2
@@ -46,17 +52,15 @@ require_root() {
     fi
 }
 
-require_user() {
-    if ! id -u "$APP_USER" >/dev/null 2>&1; then
-        log "User '$APP_USER' does not exist."
-        exit 1
-    fi
-}
-
 require_repo() {
     if [ ! -d "$APP_DIR" ]; then
         log "App dir does not exist: $APP_DIR"
         log "Clone the linux branch there before running this script."
+        exit 1
+    fi
+    if [ ! -f "$APP_DIR/watchdog_tui.py" ]; then
+        log "watchdog_tui.py not found in $APP_DIR"
+        log "Run this script from the cloned watchdog-tui repo or set APP_DIR."
         exit 1
     fi
 }
@@ -156,11 +160,193 @@ write_runner() {
 set -eu
 
 APP_DIR=$APP_DIR
+WATCHDOG_CONFIG_PATH=$WATCHDOG_CONFIG_PATH
 
 cd "\$APP_DIR"
-exec /usr/bin/python3 watchdog_tui.py --config "\$APP_DIR/watchdog.conf" --db "\$APP_DIR/watchdog.sqlite3"
+exec /usr/bin/python3 watchdog_tui.py --config "\$WATCHDOG_CONFIG_PATH" --db "\$APP_DIR/watchdog.sqlite3"
 EOF
     chmod 0755 "$RUNNER_PATH"
+}
+
+ask() {
+    prompt=$1
+    default=$2
+    if [ -n "$default" ]; then
+        printf '%s [%s]: ' "$prompt" "$default" >&2
+    else
+        printf '%s: ' "$prompt" >&2
+    fi
+    IFS= read -r value || value=
+    if [ -z "$value" ]; then
+        value=$default
+    fi
+    printf '%s\n' "$value"
+}
+
+ask_secret() {
+    prompt=$1
+    printf '%s: ' "$prompt" >&2
+    if [ -t 0 ]; then
+        old_stty=$(stty -g)
+        trap 'stty "$old_stty"; exit 130' INT TERM HUP
+        stty -echo
+        IFS= read -r value || value=
+        stty "$old_stty"
+        trap - INT TERM HUP
+        printf '\n' >&2
+    else
+        IFS= read -r value || value=
+    fi
+    printf '%s\n' "$value"
+}
+
+ask_required_secret() {
+    prompt=$1
+    while :; do
+        value=$(ask_secret "$prompt")
+        if [ -n "$value" ]; then
+            printf '%s\n' "$value"
+            return 0
+        fi
+        log "Value cannot be empty."
+    done
+}
+
+write_watchdog_config() {
+    if [ "$CONFIGURE_WATCHDOG_CONF" != "1" ]; then
+        log "Skipping watchdog.conf generation"
+        return 0
+    fi
+
+    if [ -f "$WATCHDOG_CONFIG_PATH" ] && [ "$OVERWRITE_WATCHDOG_CONF" != "1" ]; then
+        log "Config already exists: $WATCHDOG_CONFIG_PATH"
+        log "Keeping it. Set OVERWRITE_WATCHDOG_CONF=1 to regenerate."
+        return 0
+    fi
+
+    if [ ! -t 0 ]; then
+        log "Interactive terminal is required to create $WATCHDOG_CONFIG_PATH."
+        log "Create watchdog.conf manually or rerun with CONFIGURE_WATCHDOG_CONF=0."
+        exit 1
+    fi
+
+    log "Creating watchdog config at $WATCHDOG_CONFIG_PATH"
+
+    global_http_user_agent=$(ask "HTTP user agent" "watchdog-tui/1.0")
+
+    lcl_net_address=$(ask "Local gateway address" "192.168.50.1")
+    lcl_net_timeout=$(ask "Local ping timeout seconds" "1.0")
+
+    int_net_host=$(ask "Internet TLS host" "ya.ru")
+    int_net_port=$(ask "Internet TLS port" "443")
+    int_net_timeout=$(ask "Internet TLS timeout seconds" "1.0")
+
+    vpn_host=$(ask "VPN TLS host" "instagram.com")
+    vpn_port=$(ask "VPN TLS port" "443")
+    vpn_timeout=$(ask "VPN TLS timeout seconds" "5.0")
+
+    haos_address=$(ask "Home Assistant address" "192.168.50.4")
+    haos_port=$(ask "Home Assistant port" "8123")
+    haos_api_path=$(ask "Home Assistant API path" "/api/config")
+    haos_timeout=$(ask "Home Assistant timeout seconds" "2.0")
+    haos_token=$(ask_required_secret "Home Assistant long-lived token")
+
+    nas_address=$(ask "NAS address" "192.168.50.3")
+    nas_port=$(ask "NAS SMB port" "445")
+    nas_tcp_timeout=$(ask "NAS TCP timeout seconds" "1.0")
+    nas_smb_timeout=$(ask "NAS SMB timeout seconds" "5.0")
+    nas_user=$(ask "NAS SMB user" "watchdog")
+    nas_pass=$(ask_required_secret "NAS SMB password")
+    nas_share=$(ask "NAS SMB share" "BACKUP")
+
+    wifi_ssid=$(ask "Main Wi-Fi SSID" "example-wifi")
+    wifi_pass=$(ask_required_secret "Main Wi-Fi password")
+    wifi_gateway=$(ask "Main Wi-Fi gateway" "$lcl_net_address")
+    wifi_interface=$(ask "Main Wi-Fi interface" "auto")
+    wifi_connect_timeout=$(ask "Main Wi-Fi connect timeout seconds" "25.0")
+    wifi_ping_timeout=$(ask "Main Wi-Fi ping timeout seconds" "1.0")
+    wifi_disconnect_after=$(ask "Main Wi-Fi disconnect after check" "true")
+
+    iot_wifi_ssid=$(ask "IoT Wi-Fi SSID" "example-iot")
+    iot_wifi_pass=$(ask_secret "IoT Wi-Fi password (empty = same as main Wi-Fi)")
+    if [ -z "$iot_wifi_pass" ]; then
+        iot_wifi_pass=$wifi_pass
+    fi
+    iot_wifi_gateway=$(ask "IoT Wi-Fi gateway" "$lcl_net_address")
+    iot_wifi_interface=$(ask "IoT Wi-Fi interface" "auto")
+    iot_wifi_connect_timeout=$(ask "IoT Wi-Fi connect timeout seconds" "25.0")
+    iot_wifi_ping_timeout=$(ask "IoT Wi-Fi ping timeout seconds" "1.0")
+    iot_wifi_disconnect_after=$(ask "IoT Wi-Fi disconnect after check" "true")
+
+    touch_enabled=$(ask "Touchscreen enabled" "true")
+    touch_event_device=$(ask "Touchscreen event device" "auto")
+    touch_swipe_min_dx=$(ask "Touchscreen swipe min dx" "1200")
+    touch_swipe_max_dt=$(ask "Touchscreen swipe max dt seconds" "2.2")
+    touch_swipe_ratio=$(ask "Touchscreen horizontal ratio" "1.1")
+
+    old_umask=$(umask)
+    umask 077
+    cat >"$WATCHDOG_CONFIG_PATH" <<EOF
+[global]
+http_user_agent = $global_http_user_agent
+
+[lcl_net]
+address = $lcl_net_address
+timeout_seconds = $lcl_net_timeout
+
+[int_net]
+host = $int_net_host
+port = $int_net_port
+timeout_seconds = $int_net_timeout
+
+[vpn]
+host = $vpn_host
+port = $vpn_port
+timeout_seconds = $vpn_timeout
+
+[haos]
+address = $haos_address
+port = $haos_port
+api_path = $haos_api_path
+timeout_seconds = $haos_timeout
+token = $haos_token
+
+[nas]
+address = $nas_address
+port = $nas_port
+tcp_timeout_seconds = $nas_tcp_timeout
+smb_timeout_seconds = $nas_smb_timeout
+smb_user = $nas_user
+smb_pass = $nas_pass
+smb_share = $nas_share
+
+[wifi]
+ssid = $wifi_ssid
+password = $wifi_pass
+gateway = $wifi_gateway
+interface = $wifi_interface
+connect_timeout_seconds = $wifi_connect_timeout
+ping_timeout_seconds = $wifi_ping_timeout
+disconnect_after_check = $wifi_disconnect_after
+
+[iot_wifi]
+ssid = $iot_wifi_ssid
+password = $iot_wifi_pass
+gateway = $iot_wifi_gateway
+interface = $iot_wifi_interface
+connect_timeout_seconds = $iot_wifi_connect_timeout
+ping_timeout_seconds = $iot_wifi_ping_timeout
+disconnect_after_check = $iot_wifi_disconnect_after
+
+[touch]
+enabled = $touch_enabled
+event_device = $touch_event_device
+swipe_min_dx = $touch_swipe_min_dx
+swipe_max_dt_sec = $touch_swipe_max_dt
+swipe_horizontal_ratio = $touch_swipe_ratio
+EOF
+    chmod 0600 "$WATCHDOG_CONFIG_PATH"
+    umask "$old_umask"
 }
 
 write_kmscon_override() {
@@ -192,6 +378,7 @@ print_summary() {
 Host configuration complete.
 
 App dir:           $APP_DIR
+Config:            $WATCHDOG_CONFIG_PATH
 Runner:            $RUNNER_PATH
 Font:              $FONT_SOURCE
 kmscon config:     $KMSCON_CONF_PATH
@@ -199,9 +386,7 @@ systemd override:  $KMSCON_OVERRIDE_PATH
 
 Next steps:
   cd $APP_DIR
-  cp watchdog.example.conf watchdog.conf
-  nano watchdog.conf
-  sudo python3 watchdog_tui.py --once
+  sudo python3 watchdog_tui.py --config "$WATCHDOG_CONFIG_PATH" --once
   sudo systemctl restart kmsconvt@tty1
 
 Useful checks:
@@ -213,12 +398,12 @@ EOF
 
 main() {
     require_root
-    require_user
     require_repo
     install_base_packages
     install_kmscon_packages
     install_font
     write_kmscon_conf
+    write_watchdog_config
     write_runner
     write_kmscon_override
     configure_systemd

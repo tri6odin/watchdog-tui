@@ -11,26 +11,30 @@
 
 ## Быстрая установка на Raspberry Pi
 
-Сначала загрузи репозиторий на малинку:
+Сначала загрузи репозиторий на малинку. Пользователь может быть любым, главное
+запускать setup-скрипт из клонированной папки:
 
 ```bash
-cd /home/pi
+cd "$HOME"
 git clone -b linux git@github.com:tri6odin/watchdog-tui.git
 cd watchdog-tui
 ```
 
 Потом запусти системную подготовку хоста. Этот скрипт ставит пакеты, `kmscon`,
-шрифт, настраивает `tty1` и wrapper для автозапуска:
+шрифт, настраивает `tty1`, wrapper для автозапуска и интерактивно создает
+`watchdog.conf`:
 
 ```bash
 sudo scripts/configure_raspberry_pi_host.sh
 ```
 
-После этого установи уже сам Watchdog-конфиг:
+Скрипт спросит адреса, таймауты и секреты: Home Assistant token, NAS SMB
+учетку, Wi-Fi пароли и touch-настройки. Секреты вводятся без эха в терминал.
+
+При желании проверь созданный конфиг:
 
 ```bash
-cp watchdog.example.conf watchdog.conf
-nano watchdog.conf
+sudo nano watchdog.conf
 ```
 
 Проверь один прогон без TUI:
@@ -48,7 +52,7 @@ sudo systemctl restart kmsconvt@tty1
 Для обновления кода на малинке:
 
 ```bash
-cd /home/pi/watchdog-tui
+cd "$HOME/watchdog-tui"
 git pull origin linux
 sudo systemctl restart kmsconvt@tty1
 ```
@@ -56,21 +60,37 @@ sudo systemctl restart kmsconvt@tty1
 ## Что делает host-setup скрипт
 
 Скрипт [scripts/configure_raspberry_pi_host.sh](scripts/configure_raspberry_pi_host.sh)
-рассчитан на уже клонированную репу. Он не создает `watchdog.conf` и не
-стартует TUI сразу, чтобы приложение не упало до заполнения локальных секретов.
+рассчитан на уже клонированную репу. Он создает `watchdog.conf`
+интерактивно, если файла еще нет, но не стартует TUI сразу: сначала можно
+проверить один прогон вручную.
 
-По умолчанию он использует:
+По умолчанию он использует папку репозитория, из которой был запущен:
 
 ```text
-APP_USER=example-wifi
-APP_DIR=/home/pi/watchdog-tui
+APP_DIR=<текущая папка репозитория>
+WATCHDOG_CONFIG_PATH=$APP_DIR/watchdog.conf
 RUNNER_PATH=/usr/local/bin/kmscon-watchdog
 ```
 
 Если путь другой:
 
 ```bash
-sudo env APP_DIR=/home/pi/watchdog-tui scripts/configure_raspberry_pi_host.sh
+sudo env APP_DIR=/opt/watchdog-tui scripts/configure_raspberry_pi_host.sh
+```
+
+Если `watchdog.conf` уже есть, скрипт оставит его как есть. Перегенерировать
+конфиг можно так:
+
+```bash
+sudo env OVERWRITE_WATCHDOG_CONF=1 scripts/configure_raspberry_pi_host.sh
+```
+
+Если конфиг нужно создать вручную и не задавать вопросы во время setup:
+
+```bash
+sudo env CONFIGURE_WATCHDOG_CONF=0 scripts/configure_raspberry_pi_host.sh
+cp watchdog.example.conf watchdog.conf
+nano watchdog.conf
 ```
 
 Скрипт ставит базовые пакеты:
@@ -158,10 +178,11 @@ Wrapper запускает приложение из клонированной 
 #!/bin/sh
 set -eu
 
-APP_DIR=/home/pi/watchdog-tui
+APP_DIR=/path/to/watchdog-tui
+WATCHDOG_CONFIG_PATH=/path/to/watchdog-tui/watchdog.conf
 
 cd "$APP_DIR"
-exec /usr/bin/python3 watchdog_tui.py --config "$APP_DIR/watchdog.conf" --db "$APP_DIR/watchdog.sqlite3"
+exec /usr/bin/python3 watchdog_tui.py --config "$WATCHDOG_CONFIG_PATH" --db "$APP_DIR/watchdog.sqlite3"
 ```
 
 Watchdog запускается от root. Это нужно, потому что Wi-Fi проверки используют
@@ -175,7 +196,8 @@ Watchdog запускается от root. Это нужно, потому чт�
 
 ## Конфиг Watchdog
 
-Шаблон лежит в [watchdog.example.conf](watchdog.example.conf).
+Setup-скрипт создает `watchdog.conf` интерактивно. Шаблон для ручной настройки
+лежит в [watchdog.example.conf](watchdog.example.conf).
 
 Основные секции:
 
@@ -210,7 +232,8 @@ interface = wlan0
 Ethernet при этом продолжает держать основное соединение.
 
 `watchdog.conf` содержит реальные адреса, токены и пароли. Он не должен
-попадать в git.
+попадать в git. Setup-скрипт пишет его с правами `0600`; редактировать такой
+файл обычно нужно через `sudo nano watchdog.conf`.
 
 ## Что проверяется
 
@@ -325,7 +348,7 @@ swipe_horizontal_ratio = 1.1
 input device. Обычно помогает группа `input`:
 
 ```bash
-sudo usermod -aG input example-wifi
+sudo usermod -aG input "$USER"
 ```
 
 После этого нужен logout/login или reboot. В текущем варианте автозапуск идет
