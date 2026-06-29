@@ -1,45 +1,81 @@
 # Watchdog TUI
 
-Консольный TUI-watchdog для домашней инфраструктуры. Интерфейс рисуется через
-`curses`, история статусов хранится в SQLite, проверки запускаются по порядку и
-пишут худший статус в текущий 10-минутный интервал.
+Консольный TUI-watchdog для домашней инфраструктуры на Raspberry Pi. Интерфейс
+рисуется через `curses`, история хранится в SQLite, проверки запускаются по
+порядку и сохраняют худший статус в текущий 10-минутный интервал.
 
 ![Watchdog TUI](docs/watchdog-tui.png)
 
-Эта ветка `linux` рассчитана на Raspberry Pi. Для Mac используется отдельная
-ветка `mac`.
+Текущая ветка `linux` рассчитана на Raspberry Pi OS Lite и запуск на `tty1`
+через `kmscon`.
 
-## Быстрая установка на Raspberry Pi
+## Оглавление
 
-Сначала подготовь SSH-доступ к приватной GitHub-репе. На малинке под тем
-пользователем, который будет делать `git pull`, сгенерируй ключ:
+- [Что это](#что-это)
+- [Быстрая установка](#быстрая-установка)
+- [Обновление на Raspberry Pi](#обновление-на-raspberry-pi)
+- [Host-setup скрипт](#host-setup-скрипт)
+- [Конфиг Watchdog](#конфиг-watchdog)
+- [Автозапуск и KMSCON](#автозапуск-и-kmscon)
+- [Что проверяется](#что-проверяется)
+- [Управление](#управление)
+- [Тачскрин](#тачскрин)
+- [Отладка Wi-Fi](#отладка-wi-fi)
+- [Отладка KMSCON](#отладка-kmscon)
+- [Разработка](#разработка)
+
+## Что это
+
+Watchdog показывает состояние домашней сети и сервисов в виде компактной
+истории:
+
+```text
+LCL NET, INT NET, VPN, WIFI, IOT WIFI, NAS, HAOS, ZIGBEE
+```
+
+Основные свойства:
+
+- главный экран после запуска - `ЧАСЫ`;
+- автообновление привязано к границам 10-минутных блоков;
+- ручная перепроверка не стирает уже пойманный `fail` или `unknown` в текущем
+  10-минутном интервале;
+- Wi-Fi-проверки рассчитаны на root-запуск, потому что NetworkManager требует
+  права для переключения сетей;
+- Wi-Fi radio просыпается на время проверки и выключается после нее;
+- секреты не передаются через аргументы процессов.
+
+Рекомендуемая система: Raspberry Pi OS Lite 64-bit. Desktop-окружение не нужно:
+setup-скрипт настраивает CLI-загрузку и выводит TUI на `tty1`.
+
+## Быстрая установка
+
+### 1. Подготовить SSH key для приватной GitHub-репы
+
+На Raspberry Pi под пользователем, который будет делать `git pull`:
 
 ```bash
 ssh-keygen -t ed25519 -C "watchdog-pi"
-```
-
-Можно оставить путь по умолчанию `~/.ssh/id_ed25519` и пустой passphrase.
-Показать public key:
-
-```bash
 cat ~/.ssh/id_ed25519.pub
 ```
 
-Добавь этот public key в GitHub: репозиторий `watchdog-tui` -> `Settings` ->
-`Deploy keys` -> `Add deploy key`. Для малинки достаточно read-only ключа, то
-есть `Allow write access` можно не включать.
+Можно оставить путь `~/.ssh/id_ed25519` и пустой passphrase.
 
-Проверить доступ:
+Добавь public key в GitHub:
+
+```text
+watchdog-tui -> Settings -> Deploy keys -> Add deploy key
+```
+
+Для Raspberry Pi достаточно read-only deploy key. Проверка:
 
 ```bash
 ssh -T git@github.com
 ```
 
-GitHub может ответить, что shell access не предоставляется. Это нормально,
-главное, чтобы не было `Permission denied (publickey)`.
+Нормальный ответ GitHub может говорить, что shell access не предоставляется.
+Главное, чтобы не было `Permission denied (publickey)`.
 
-После этого загрузи репозиторий на малинку. Пользователь может быть любым,
-главное запускать setup-скрипт из клонированной папки:
+### 2. Скачать репозиторий
 
 ```bash
 cd "$HOME"
@@ -47,96 +83,16 @@ git clone -b linux git@github.com:tri6odin/watchdog-tui.git
 cd watchdog-tui
 ```
 
-Потом запусти системную подготовку хоста. Этот скрипт ставит пакеты, `kmscon`,
-шрифт, настраивает `tty1`, wrapper для автозапуска и интерактивно создает
-`watchdog.conf`:
+### 3. Запустить системную настройку
 
 ```bash
 sudo scripts/configure_raspberry_pi_host.sh
 ```
 
-Скрипт спросит только поля, которые обычно отличаются от дома к дому: адрес
-шлюза, host для проверки обычного интернета (`ya.ru` по умолчанию), host для
-проверки VPN (`instagram.com` по умолчанию), Home Assistant IP/token, NAS SMB
-учетку, имена Wi-Fi сетей (SSID) и Wi-Fi пароли. Секреты вводятся без эха в
-терминал.
+Скрипт поставит пакеты, настроит `kmscon`, установит шрифт, создаст runner для
+автозапуска и интерактивно соберет `watchdog.conf`.
 
-Порты, таймауты, Home Assistant API path, Wi-Fi interface и прочие технические
-поля заполняются дефолтами. Если нужно пройтись по ним руками во время
-установки:
-
-```bash
-sudo env ADVANCED_WATCHDOG_CONF=1 scripts/configure_raspberry_pi_host.sh
-```
-
-Touch-настройки не спрашиваются и в расширенном режиме: в конфиг записываются
-текущие дефолты `enabled = true`, `event_device = auto`, `swipe_min_dx = 1200`,
-`swipe_max_dt_sec = 2.2`, `swipe_horizontal_ratio = 1.1`.
-
-При желании проверь созданный конфиг:
-
-```bash
-sudo nano watchdog.conf
-```
-
-Проверь один прогон без TUI:
-
-```bash
-sudo python3 watchdog_tui.py --once
-```
-
-Если проверки выглядят нормально, запускай TUI на `tty1`:
-
-```bash
-sudo systemctl restart kmsconvt@tty1
-```
-
-Для обновления кода на малинке:
-
-```bash
-cd "$HOME/watchdog-tui"
-git pull origin linux
-sudo systemctl restart kmsconvt@tty1
-```
-
-## Что делает host-setup скрипт
-
-Скрипт [scripts/configure_raspberry_pi_host.sh](scripts/configure_raspberry_pi_host.sh)
-рассчитан на уже клонированную репу. Он создает `watchdog.conf`
-интерактивно, если файла еще нет, но не стартует TUI сразу: сначала можно
-проверить один прогон вручную.
-
-По умолчанию он использует папку репозитория, из которой был запущен:
-
-```text
-APP_DIR=<текущая папка репозитория>
-WATCHDOG_CONFIG_PATH=$APP_DIR/watchdog.conf
-RUNNER_PATH=/usr/local/bin/kmscon-watchdog
-ADVANCED_WATCHDOG_CONF=0
-```
-
-Если путь другой:
-
-```bash
-sudo env APP_DIR=/opt/watchdog-tui scripts/configure_raspberry_pi_host.sh
-```
-
-Если `watchdog.conf` уже есть, скрипт оставит его как есть. Перегенерировать
-конфиг можно так:
-
-```bash
-sudo env OVERWRITE_WATCHDOG_CONF=1 scripts/configure_raspberry_pi_host.sh
-```
-
-Если конфиг нужно создать вручную и не задавать вопросы во время setup:
-
-```bash
-sudo env CONFIGURE_WATCHDOG_CONF=0 scripts/configure_raspberry_pi_host.sh
-cp watchdog.example.conf watchdog.conf
-nano watchdog.conf
-```
-
-Обычный интерактивный setup спрашивает:
+Обычный setup спрашивает только поля, которые отличаются от дома к дому:
 
 ```text
 Local gateway address
@@ -150,38 +106,86 @@ Main Wi-Fi SSID/password
 IoT Wi-Fi SSID/password
 ```
 
-Остальное заполняется дефолтами. Расширенный режим добавляет вопросы про
-порты, таймауты, Home Assistant API path, Wi-Fi interface/gateway и
-`disconnect_after_check`:
+Порты, таймауты, Home Assistant API path, Wi-Fi interface и прочие технические
+поля заполняются дефолтами. Расширенный режим:
 
 ```bash
 sudo env ADVANCED_WATCHDOG_CONF=1 scripts/configure_raspberry_pi_host.sh
 ```
 
-Скрипт ставит базовые пакеты:
+### 4. Проверить конфиг и один прогон
+
+```bash
+sudo nano watchdog.conf
+sudo python3 watchdog_tui.py --once
+```
+
+Если один прогон выглядит нормально, запускай TUI на `tty1`:
+
+```bash
+sudo systemctl restart kmsconvt@tty1
+```
+
+## Обновление на Raspberry Pi
+
+```bash
+cd "$HOME/watchdog-tui"
+git pull origin linux
+sudo systemctl restart kmsconvt@tty1
+```
+
+Если после обновления менялся setup-скрипт или системные зависимости, можно
+перезапустить подготовку хоста:
+
+```bash
+sudo scripts/configure_raspberry_pi_host.sh
+```
+
+Если `watchdog.conf` уже существует, setup-скрипт оставит его как есть.
+
+## Host-setup скрипт
+
+Скрипт [scripts/configure_raspberry_pi_host.sh](scripts/configure_raspberry_pi_host.sh)
+рассчитан на уже клонированную репу.
+
+Он делает:
+
+- ставит базовые системные пакеты;
+- ставит `kmscon`;
+- при необходимости временно подключает Debian Bookworm только для `kmscon`;
+- устанавливает `docs/fonts/JetBrainsMono-Compact.ttf`;
+- пишет `/etc/kmscon/kmscon.conf`;
+- пишет `/usr/local/bin/kmscon-watchdog`;
+- пишет systemd override для `kmsconvt@tty1`;
+- отключает `getty@tty1` и GUI target;
+- создает `watchdog.conf`, если его еще нет.
+
+Базовые пакеты:
 
 ```text
 git python3 iproute2 iputils-ping curl smbclient network-manager iw rfkill fontconfig
 ```
 
-Для полноэкранного TUI на `tty1` ставятся:
+Пакеты для TUI на `tty1`:
 
 ```text
 kmscon libtsm4 libutempter0
 ```
 
 Если `kmscon` недоступен в текущих репозиториях, скрипт временно добавляет
-Debian Bookworm с pinning-ом только для `kmscon`, `libtsm4` и `libutempter0`.
-После установки Bookworm-источник удаляется автоматически. Уже установленные
-пакеты остаются в системе.
+Bookworm source с pinning-ом только для:
 
-Если Bookworm-источник нужно оставить для будущих переустановок:
+```text
+kmscon libtsm4 libutempter0
+```
+
+После установки Bookworm source удаляется автоматически. Оставить его можно так:
 
 ```bash
 sudo env REMOVE_BOOKWORM_AFTER_INSTALL=0 scripts/configure_raspberry_pi_host.sh
 ```
 
-Проверить, что временный источник удален:
+Проверить, что временный source удален:
 
 ```bash
 test ! -f /etc/apt/sources.list.d/debian-bookworm.list
@@ -189,26 +193,145 @@ test ! -f /etc/apt/preferences.d/99-kmscon-from-bookworm
 dpkg -l kmscon libtsm4 libutempter0
 ```
 
-## Шрифт и KMSCON
+Полезные переменные:
 
-В репе лежит компактный шрифт для консольного TUI:
+```text
+APP_DIR=<путь к репозиторию>
+WATCHDOG_CONFIG_PATH=$APP_DIR/watchdog.conf
+RUNNER_PATH=/usr/local/bin/kmscon-watchdog
+KMSCON_FONT_SIZE=16
+ADVANCED_WATCHDOG_CONF=0
+OVERWRITE_WATCHDOG_CONF=0
+CONFIGURE_WATCHDOG_CONF=1
+```
+
+Примеры:
+
+```bash
+sudo env APP_DIR=/opt/watchdog-tui scripts/configure_raspberry_pi_host.sh
+sudo env OVERWRITE_WATCHDOG_CONF=1 scripts/configure_raspberry_pi_host.sh
+sudo env CONFIGURE_WATCHDOG_CONF=0 scripts/configure_raspberry_pi_host.sh
+sudo env KMSCON_FONT_SIZE=14 scripts/configure_raspberry_pi_host.sh
+```
+
+## Конфиг Watchdog
+
+Основной конфиг: `watchdog.conf`.
+
+Шаблон: [watchdog.example.conf](watchdog.example.conf).
+
+`watchdog.conf` содержит реальные адреса, токены и пароли. Он не должен
+попадать в git. Setup-скрипт пишет его с правами `0600`, поэтому редактировать
+обычно нужно через `sudo nano watchdog.conf`.
+
+Секции:
+
+```ini
+[global]
+http_user_agent = watchdog-tui/1.0
+
+[lcl_net]
+address = 192.168.50.1
+timeout_seconds = 1.0
+
+[int_net]
+host = ya.ru
+port = 443
+timeout_seconds = 1.0
+
+[vpn]
+host = instagram.com
+port = 443
+timeout_seconds = 5.0
+
+[haos]
+address = 192.168.50.4
+port = 8123
+api_path = /api/config
+timeout_seconds = 2.0
+token = paste_home_assistant_long_lived_token_here
+
+[nas]
+address = 192.168.50.3
+port = 445
+tcp_timeout_seconds = 1.0
+smb_timeout_seconds = 5.0
+smb_user = watchdog
+smb_pass = paste_smb_password_here
+smb_share = BACKUP
+
+[wifi]
+ssid = example-wifi
+password = paste_wifi_password_here
+gateway = 192.168.50.1
+interface = auto
+connect_timeout_seconds = 25.0
+ping_timeout_seconds = 1.0
+disconnect_after_check = true
+
+[iot_wifi]
+ssid = example-iot
+password = paste_iot_wifi_password_here
+gateway = 192.168.50.1
+interface = auto
+connect_timeout_seconds = 25.0
+ping_timeout_seconds = 1.0
+disconnect_after_check = true
+
+[touch]
+enabled = true
+event_device = auto
+swipe_min_dx = 1200
+swipe_max_dt_sec = 2.2
+swipe_horizontal_ratio = 1.1
+```
+
+Для Wi-Fi `interface = auto` означает автоопределение первого Wi-Fi интерфейса
+через NetworkManager. Если нужно зафиксировать интерфейс:
+
+```ini
+interface = wlan0
+```
+
+`disconnect_after_check = true` отключает Wi-Fi interface и выключает Wi-Fi
+radio после проверки. Это сделано специально: основной канал держит Ethernet,
+а Wi-Fi-модуль просыпается только на время проверки.
+
+## Автозапуск и KMSCON
+
+TUI запускается на `tty1` через `kmsconvt@tty1`.
+
+Шрифт лежит в репе:
 
 ```text
 docs/fonts/JetBrainsMono-Compact.ttf
 ```
 
-Host-setup скрипт устанавливает его в:
+Setup-скрипт устанавливает его в:
 
 ```text
 /usr/local/share/fonts/JetBrainsMono/JetBrainsMono-Compact.ttf
 ```
 
-и пишет `/etc/kmscon/kmscon.conf`:
+KMSCON config:
+
+```text
+/etc/kmscon/kmscon.conf
+```
+
+Дефолтное содержимое:
 
 ```text
 font-name=JetBrains Mono Compact
 font-size=16
 font-dpi=96
+```
+
+Если на экране нужно больше символов, можно уменьшить `font-size`:
+
+```bash
+sudo nano /etc/kmscon/kmscon.conf
+sudo systemctl restart kmsconvt@tty1
 ```
 
 Проверить имя шрифта:
@@ -217,27 +340,13 @@ font-dpi=96
 fc-scan --format '%{family[0]} %{style[0]}\n' docs/fonts/JetBrainsMono-Compact.ttf
 ```
 
-Проверить `kmscon` unit:
-
-```bash
-systemctl cat kmsconvt@tty1
-systemctl status kmsconvt@tty1 --no-pager -l
-journalctl -u kmsconvt@tty1 -b --no-pager -n 120
-```
-
-Если открыт вывод `systemctl cat ...` или другой pager, выйти можно клавишей
-`q`.
-
-## Автозапуск
-
-На текущей Raspberry Pi TUI запускается на `tty1` через `kmsconvt@tty1`.
-Systemd override указывает на wrapper:
+Runner:
 
 ```text
 /usr/local/bin/kmscon-watchdog
 ```
 
-Wrapper запускает приложение из клонированной репы:
+Пример runner:
 
 ```sh
 #!/bin/sh
@@ -250,65 +359,23 @@ cd "$APP_DIR"
 exec /usr/bin/python3 watchdog_tui.py --config "$WATCHDOG_CONFIG_PATH" --db "$APP_DIR/watchdog.sqlite3"
 ```
 
-Watchdog запускается от root. Это нужно, потому что Wi-Fi проверки используют
-`nmcli` для переключения сетей, а обычный пользователь может видеть Wi-Fi и
-делать `ping`, но без дополнительных прав не может выполнять
-`nmcli connection up/down`, `nmcli device disconnect` или
-`nmcli device wifi connect`.
+Watchdog запускается от root. Это нужно для Wi-Fi-проверок через `nmcli`.
+Обычный пользователь может видеть Wi-Fi и делать `ping`, но без дополнительных
+прав часто не может выполнять `nmcli device wifi connect`,
+`nmcli device disconnect` и `nmcli radio wifi off`.
 
 Нюанс: после root-автозапуска файл `watchdog.sqlite3` может принадлежать root.
 Для ручного запуска с той же базой используй `sudo` или отдельный путь к базе.
 
-## Конфиг Watchdog
-
-Setup-скрипт создает `watchdog.conf` интерактивно. Шаблон для ручной настройки
-лежит в [watchdog.example.conf](watchdog.example.conf).
-
-Основные секции:
-
-`[global]`: общий `http_user_agent`.
-
-`[lcl_net]`: адрес шлюза и timeout для ping.
-
-`[int_net]`: host/port/timeout для TLS проверки обычного интернета.
-
-`[vpn]`: host/port/timeout для TLS проверки VPN-доступа.
-
-`[haos]`: адрес, порт, API path, timeout и long-lived access token Home
-Assistant.
-
-`[nas]`: адрес NAS, SMB-порт, TCP/SMB timeout, пользователь, пароль и имя шары.
-
-`[wifi]`: основной Wi-Fi SSID, пароль, gateway, интерфейс и таймауты.
-
-`[iot_wifi]`: IoT Wi-Fi SSID, пароль, gateway, интерфейс и таймауты.
-
-`[touch]`: настройки свайпов для тачскрина.
-
-Для Wi-Fi `interface = auto` означает автоопределение первого Wi-Fi интерфейса
-через `nmcli device status`. Если надо зафиксировать интерфейс:
-
-```ini
-interface = wlan0
-```
-
-`disconnect_after_check = true` отключает Wi-Fi интерфейс после проверки и
-выключает Wi-Fi radio, чтобы модуль просыпался только на время проверки.
-Ethernet при этом продолжает держать основное соединение.
-
-`watchdog.conf` содержит реальные адреса, токены и пароли. Он не должен
-попадать в git. Setup-скрипт пишет его с правами `0600`; редактировать такой
-файл обычно нужно через `sudo nano watchdog.conf`.
-
 ## Что проверяется
 
-Порядок обновления и порядок отображения:
+Порядок обновления:
 
 ```text
 LCL NET, INT NET, VPN, WIFI, IOT WIFI, NAS, HAOS, ZIGBEE
 ```
 
-На исторических экранах строки разложены в две колонки:
+Исторические экраны разложены в две колонки:
 
 ```text
 LCL NET   IOT WIFI
@@ -317,21 +384,21 @@ VPN       HAOS
 WIFI      ZIGBEE
 ```
 
-`LCL NET`: один ICMP ping до домашнего шлюза из `[lcl_net]`.
+`LCL NET`: ICMP ping до домашнего шлюза.
 
 ```bash
 ping -c 1 -W <timeout> <address>
 ```
 
-`INT NET`: TCP connect и TLS handshake до хоста из `[int_net]`, сейчас
-`ya.ru:443`. HTTP-страница не скачивается, проверяется TLS handshake с SNI.
+`INT NET`: TCP connect и TLS handshake до `[int_net]`, по умолчанию
+`ya.ru:443`. HTTP-страница не скачивается.
 
-`VPN`: TCP connect и TLS handshake до хоста из `[vpn]`, сейчас
+`VPN`: TCP connect и TLS handshake до `[vpn]`, по умолчанию
 `instagram.com:443`. Эта проверка не зависит от `INT NET`.
 
-`WIFI` и `IOT WIFI`: поиск Wi-Fi интерфейса через NetworkManager, подключение к
-SSID из конфига, ожидание IPv4 на Wi-Fi интерфейсе, ping шлюза с source address
-этого интерфейса и disconnect/radio off после проверки, если это включено.
+`WIFI` и `IOT WIFI`: включить Wi-Fi radio, подключиться к SSID, дождаться IPv4
+на `wlan0`, пинговать шлюз с source address Wi-Fi-интерфейса, отключить
+интерфейс и выключить Wi-Fi radio.
 
 ```bash
 nmcli -t -f DEVICE,TYPE,STATE device status
@@ -343,30 +410,28 @@ nmcli --wait 5 device disconnect <wlan>
 nmcli --wait 5 radio wifi off
 ```
 
-Важно: watchdog пингует через IPv4-адрес `wlan0`, а не просто через имя
-интерфейса. Это защищает от ситуации, когда Linux отправляет пакет через
-`wlan0`, но выбирает source address с другого интерфейса.
+Важно: ping идет через IPv4-адрес `wlan0`, а не просто через имя интерфейса.
+Это защищает от ситуации, когда Linux отправляет пакет через `wlan0`, но
+выбирает source address с другого интерфейса.
 
-Wi-Fi пароль передается в `nmcli --ask` через stdin, а не через аргументы
-процесса.
+Wi-Fi пароль передается в `nmcli --ask` через stdin.
 
-`NAS`: TCP connect до SMB-порта из `[nas]`, потом проверка, что нужная шара
-видна через `smbclient -L`.
+`NAS`: TCP connect до SMB-порта, потом проверка, что нужная шара видна через
+`smbclient -L`.
 
 ```bash
 smbclient -L //<address> -U <user> -g
 ```
 
-SMB-пароль передается через переменную окружения `PASSWD`, а не через аргументы
-процесса.
+SMB-пароль передается через переменную окружения `PASSWD`.
 
-`HAOS`: HTTP API Home Assistant из `[haos]`, сейчас `/api/config`.
-Bearer token передается в `curl` через stdin config, а не через аргументы
-процесса.
+`HAOS`: HTTP API Home Assistant, по умолчанию `/api/config`.
 
 ```bash
 curl --config - --max-time <timeout> --connect-timeout <timeout> http://<address>:<port>/<api_path>
 ```
+
+Bearer token передается в `curl` через stdin config.
 
 `ZIGBEE`: пока заглушка, всегда `ok`.
 
@@ -389,16 +454,16 @@ q              выход
 на `ЧАСЫ`.
 
 Автообновление привязано к границам 10-минутных блоков: 12:00, 12:10, 12:20 и
-так далее. Поэтому на экране `ЧАСЫ` новая правая ячейка закрашивается сразу
-после очередной автоматической проверки.
+так далее. Новая правая ячейка на экране `ЧАСЫ` закрашивается после очередной
+автоматической проверки.
 
 Если в одном 10-минутном интервале уже был `fail` или `unknown`, ручная
 перепроверка с `ok` не затирает его. В истории остается худший статус
-интервала, чтобы не потерять факт временной потери коннекта.
+интервала.
 
 ## Тачскрин
 
-В Linux-ветке карусель можно листать горизонтальными свайпами.
+Карусель можно листать горизонтальными свайпами.
 
 Настройки:
 
@@ -415,19 +480,19 @@ swipe_horizontal_ratio = 1.1
 `/proc/bus/input/devices`. Это нужно потому, что `/dev/input/event0` может
 меняться после перезагрузки или изменения набора input-устройств.
 
-Если приложение запускается не от root, пользователь должен иметь право читать
-input device. Обычно помогает группа `input`:
+В текущей установке приложение запускается от root, поэтому отдельные права на
+`/dev/input/event*` не нужны. Если запускать не от root, пользователю нужны
+права на чтение input device. Обычно помогает группа `input`:
 
 ```bash
 sudo usermod -aG input "$USER"
 ```
 
-После этого нужен logout/login или reboot. В текущем варианте автозапуск идет
-от root, поэтому отдельные права на `/dev/input/event*` не требуются.
+После этого нужен logout/login или reboot.
 
 ## Отладка Wi-Fi
 
-Проверить состояние NetworkManager:
+Проверить NetworkManager:
 
 ```bash
 nmcli general status
@@ -444,14 +509,20 @@ sleep 3
 nmcli -f IN-USE,SSID,BSSID,CHAN,FREQ,SIGNAL,SECURITY device wifi list ifname wlan0
 ```
 
-Проверить, что ping идет именно через Wi-Fi:
+Проверить адрес Wi-Fi-интерфейса и ping через него:
 
 ```bash
 ip -4 -o addr show dev wlan0 scope global
 ping -I <wlan0-ipv4> -c 3 -W 1 192.168.50.1
 ```
 
-Если `nmcli` не видит сеть, но есть подозрение, что сеть в эфире:
+Проверить маршрут, который выбрал бы Linux:
+
+```bash
+ip route get 192.168.50.1
+```
+
+Если `nmcli` не видит сеть, но сеть точно есть в эфире:
 
 ```bash
 sudo iw dev wlan0 scan ssid example-iot
@@ -459,9 +530,44 @@ sudo iw dev wlan0 scan ssid example-iot
 
 Если без `sudo` команды `nmcli connection up ...` или
 `nmcli device wifi connect ...` падают с `Not authorized`, это нормально для
-обычного пользователя. Для текущей установки это решается root-автозапуском.
+обычного пользователя. Текущая установка решает это root-автозапуском.
+
+## Отладка KMSCON
+
+Проверить unit:
+
+```bash
+systemctl cat kmsconvt@tty1
+systemctl status kmsconvt@tty1 --no-pager -l
+journalctl -u kmsconvt@tty1 -b --no-pager -n 120
+```
+
+Перезапустить TUI:
+
+```bash
+sudo systemctl restart kmsconvt@tty1
+```
+
+Проверить, что `getty@tty1` выключен:
+
+```bash
+systemctl status getty@tty1 --no-pager -l || true
+```
+
+Если открыт pager у `systemctl` или `journalctl`, выйти можно клавишей `q`.
 
 ## Разработка
+
+Структура:
+
+```text
+watchdog_tui.py      # argparse, загрузка конфига, запуск once/TUI
+watchdog_config.py   # чтение watchdog.conf
+watchdog_core.py     # статусы, проверки, порядок, агрегация
+watchdog_db.py       # SQLite история
+watchdog_ui.py       # curses UI
+touch_swipe.py       # Linux touch input
+```
 
 Компиляция:
 
