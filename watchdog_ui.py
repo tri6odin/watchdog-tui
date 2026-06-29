@@ -17,6 +17,7 @@ from watchdog_core import (
     BAR_WIDTH,
     CAROUSEL,
     CHECK_ORDER,
+    Checker,
     DEFAULT_UPDATE_STEP_DELAY_SECONDS,
     DISPLAY_ROWS,
     HALF_WIDTH,
@@ -229,6 +230,7 @@ def perform_update(
     stdscr: curses.window,
     db: WatchdogDB,
     colors: Mapping[str, int],
+    checkers: Mapping[str, Checker],
     step_delay_seconds: float,
 ) -> None:
     """Запустить обновление, показать прогресс и сохранить результат."""
@@ -242,6 +244,7 @@ def perform_update(
         draw_update_screen(stdscr, progress, colors)
 
     results = run_service_checks(
+        checkers,
         progress_callback=on_progress,
         step_delay_seconds=step_delay_seconds,
     )
@@ -324,8 +327,12 @@ def run_tui(
     db: WatchdogDB,
     update_interval_seconds: int,
     touch_config: Optional[TouchConfig] = None,
+    checkers: Optional[Mapping[str, Checker]] = None,
 ) -> None:
     """Главный цикл TUI."""
+
+    if checkers is None:
+        raise ValueError("run_tui requires configured checkers")
 
     curses.curs_set(0)
     stdscr.nodelay(True)
@@ -339,13 +346,13 @@ def run_tui(
     try:
         while True:
             if time.monotonic() >= next_auto_update_at:
-                perform_update(stdscr, db, colors, DEFAULT_UPDATE_STEP_DELAY_SECONDS)
+                perform_update(stdscr, db, colors, checkers, DEFAULT_UPDATE_STEP_DELAY_SECONDS)
                 drain_swipes(touch_reader)
                 current_screen = Screen.HOURS
                 next_auto_update_at = next_auto_update_time(update_interval_seconds)
 
             if current_screen == Screen.UPDATE:
-                perform_update(stdscr, db, colors, DEFAULT_UPDATE_STEP_DELAY_SECONDS)
+                perform_update(stdscr, db, colors, checkers, DEFAULT_UPDATE_STEP_DELAY_SECONDS)
                 drain_swipes(touch_reader)
                 current_screen = Screen.HOURS
                 next_auto_update_at = next_auto_update_time(update_interval_seconds)

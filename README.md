@@ -570,7 +570,8 @@ systemctl status getty@tty1 --no-pager -l || true
 ```text
 watchdog_tui.py      # argparse, загрузка конфига, запуск once/TUI
 watchdog_config.py   # чтение watchdog.conf
-watchdog_core.py     # статусы, проверки, порядок, агрегация
+watchdog_core.py     # статусы, порядок проверок, агрегация и runner
+watchdog_checks/     # реальные проверки: network, wifi, nas, haos, zigbee
 watchdog_db.py       # SQLite история
 watchdog_ui.py       # curses UI
 touch_swipe.py       # Linux touch input
@@ -579,7 +580,7 @@ touch_swipe.py       # Linux touch input
 Компиляция:
 
 ```bash
-python3 -m py_compile watchdog_tui.py watchdog_config.py watchdog_core.py watchdog_db.py watchdog_ui.py touch_swipe.py test_watchdog_tui.py
+python3 -m py_compile watchdog_tui.py watchdog_config.py watchdog_core.py watchdog_db.py watchdog_ui.py touch_swipe.py test_watchdog_tui.py watchdog_checks/*.py
 ```
 
 Тесты:

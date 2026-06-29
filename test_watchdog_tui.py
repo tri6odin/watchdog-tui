@@ -24,6 +24,17 @@ from touch_swipe import (
     TouchSwipeReader,
     touch_event_device_from_proc_text,
 )
+from watchdog_checks import build_checkers
+from watchdog_checks.haos import check_home_assistant_api, check_http_endpoint
+from watchdog_checks.nas import check_smb_share_linux, smb_share_is_listed
+from watchdog_checks.network import check_tcp_port, check_tls_handshake, ping_host_linux
+from watchdog_checks.wifi import (
+    check_wifi_network_linux,
+    connect_wifi_linux,
+    detect_wifi_interface_linux,
+    interface_ipv4_address_linux,
+    wifi_profile_for_ssid_linux,
+)
 from watchdog_core import (
     CHECK_ORDER,
     DISPLAY_ROWS,
@@ -32,27 +43,8 @@ from watchdog_core import (
     TEN_MINUTES,
     aggregate_statuses,
     align_timestamp,
-    check_haos,
-    check_home_assistant_api,
-    check_INT_net,
-    check_http_endpoint,
-    check_lcl_net,
-    check_nas,
-    check_smb_share_linux,
-    check_tcp_port,
-    check_tls_handshake,
-    check_vpn,
-    check_wifi,
-    check_wifi_network_linux,
-    connect_wifi_linux,
-    configure_checks,
-    detect_wifi_interface_linux,
-    interface_ipv4_address_linux,
-    ping_host_linux,
     run_service_checks,
     seconds_until_next_history_bucket,
-    smb_share_is_listed,
-    wifi_profile_for_ssid_linux,
 )
 from watchdog_db import WatchdogDB
 
@@ -340,7 +332,7 @@ B: EV=120013
         self.assertEqual(seconds_until_next_history_bucket(bucket_start + 125), TEN_MINUTES - 125)
 
     def test_ping_host_uses_linux_ping_flags(self):
-        with patch("watchdog_core.subprocess.run") as run:
+        with patch("watchdog_checks.network.subprocess.run") as run:
             run.return_value.returncode = 0
 
             self.assertTrue(ping_host_linux("192.168.50.1", 1.0))
@@ -351,7 +343,7 @@ B: EV=120013
             self.assertEqual(run.call_args.kwargs["timeout"], 1.0)
 
     def test_ping_host_can_pin_wifi_interface(self):
-        with patch("watchdog_core.subprocess.run") as run:
+        with patch("watchdog_checks.network.subprocess.run") as run:
             run.return_value.returncode = 0
 
             self.assertTrue(ping_host_linux("192.168.50.1", 1.0, interface="wlan0"))
@@ -360,7 +352,7 @@ B: EV=120013
             self.assertEqual(args, ["ping", "-c", "1", "-W", "1", "-I", "wlan0", "192.168.50.1"])
 
     def test_ping_host_can_send_multiple_packets(self):
-        with patch("watchdog_core.subprocess.run") as run:
+        with patch("watchdog_checks.network.subprocess.run") as run:
             run.return_value.returncode = 0
 
             self.assertTrue(ping_host_linux("192.168.50.1", 1.0, interface="192.168.50.218", count=3))
@@ -370,7 +362,7 @@ B: EV=120013
             self.assertEqual(run.call_args.kwargs["timeout"], 5.0)
 
     def test_http_endpoint_uses_curl_with_hard_timeout(self):
-        with patch("watchdog_core.subprocess.run") as run:
+        with patch("watchdog_checks.haos.subprocess.run") as run:
             run.return_value.returncode = 0
             run.return_value.stdout = "200"
 
@@ -387,7 +379,7 @@ B: EV=120013
             self.assertEqual(run.call_args.kwargs["timeout"], 5.0)
 
     def test_http_endpoint_rejects_curl_error(self):
-        with patch("watchdog_core.subprocess.run") as run:
+        with patch("watchdog_checks.haos.subprocess.run") as run:
             run.return_value.returncode = 28
             run.return_value.stdout = "000"
 
@@ -399,8 +391,8 @@ B: EV=120013
         tls_socket = MagicMock()
         ssl_context.wrap_socket.return_value = tls_socket
 
-        with patch("watchdog_core.socket.create_connection", return_value=raw_socket) as create_connection:
-            with patch("watchdog_core.ssl.create_default_context", return_value=ssl_context):
+        with patch("watchdog_checks.network.socket.create_connection", return_value=raw_socket) as create_connection:
+            with patch("watchdog_checks.network.ssl.create_default_context", return_value=ssl_context):
                 self.assertTrue(check_tls_handshake("instagram.com", 443, 5.0))
 
         create_connection.assert_called_once_with(("instagram.com", 443), timeout=5.0)
@@ -410,7 +402,7 @@ B: EV=120013
         ssl_context.wrap_socket.assert_called_once_with(raw_socket, server_hostname="instagram.com")
 
     def test_home_assistant_api_uses_token_via_stdin_config(self):
-        with patch("watchdog_core.subprocess.run") as run:
+        with patch("watchdog_checks.haos.subprocess.run") as run:
             run.return_value.returncode = 0
             run.return_value.stdout = "200"
 
@@ -434,7 +426,7 @@ B: EV=120013
             self.assertEqual(run.call_args.kwargs["timeout"], 2.0)
 
     def test_home_assistant_api_rejects_unauthorized(self):
-        with patch("watchdog_core.subprocess.run") as run:
+        with patch("watchdog_checks.haos.subprocess.run") as run:
             run.return_value.returncode = 0
             run.return_value.stdout = "401"
 
@@ -451,30 +443,30 @@ B: EV=120013
 
     def test_real_checkers_use_configured_addresses_and_timeouts(self):
         config = make_test_config()
-        configure_checks(config)
+        checkers = build_checkers(config)
 
-        with patch("watchdog_core.ping_host_linux", return_value=True) as ping:
-            self.assertTrue(check_lcl_net())
+        with patch("watchdog_checks.ping_host_linux", return_value=True) as ping:
+            self.assertTrue(checkers["LCL NET"]())
             ping.assert_called_once_with(config.lcl_net.address, config.lcl_net.timeout_seconds)
 
-        with patch("watchdog_core.check_tls_handshake", return_value=True) as tls:
-            self.assertTrue(check_INT_net())
+        with patch("watchdog_checks.check_tls_handshake", return_value=True) as tls:
+            self.assertTrue(checkers["INT NET"]())
             tls.assert_called_once_with(
                 config.int_net.host,
                 config.int_net.port,
                 config.int_net.timeout_seconds,
             )
 
-        with patch("watchdog_core.check_tls_handshake", return_value=True) as tls:
-            self.assertTrue(check_vpn())
+        with patch("watchdog_checks.check_tls_handshake", return_value=True) as tls:
+            self.assertTrue(checkers["VPN"]())
             tls.assert_called_once_with(
                 config.vpn.host,
                 config.vpn.port,
                 config.vpn.timeout_seconds,
             )
 
-        with patch("watchdog_core.check_home_assistant_api", return_value=True) as haos:
-            self.assertTrue(check_haos())
+        with patch("watchdog_checks.check_home_assistant_api", return_value=True) as haos:
+            self.assertTrue(checkers["HAOS"]())
             haos.assert_called_once_with(
                 config.haos.address,
                 config.haos.port,
@@ -484,20 +476,12 @@ B: EV=120013
                 config.global_config.http_user_agent,
             )
 
-        with patch("watchdog_core.check_wifi_network_linux", return_value=True) as wifi:
-            self.assertTrue(check_wifi())
-            wifi.assert_called_once_with(
-                config.wifi.ssid,
-                config.wifi.password,
-                config.wifi.gateway,
-                config.wifi.interface,
-                config.wifi.connect_timeout_seconds,
-                config.wifi.ping_timeout_seconds,
-                config.wifi.disconnect_after_check,
-            )
+        with patch("watchdog_checks.check_wifi_pair", return_value={"WIFI": True, "IOT WIFI": True}) as wifi:
+            self.assertEqual(checkers["WIFI"](), {"WIFI": True, "IOT WIFI": True})
+            wifi.assert_called_once_with(config.wifi, config.iot_wifi)
 
     def test_tcp_port_check_uses_configured_timeout(self):
-        connection = patch("watchdog_core.socket.create_connection")
+        connection = patch("watchdog_checks.network.socket.create_connection")
         with connection as create_connection:
             create_connection.return_value.__enter__.return_value = object()
 
@@ -519,7 +503,7 @@ homes                                           Disk
         self.assertFalse(smb_share_is_listed(grepable_output, "MISSING"))
 
     def test_smb_share_check_uses_smbclient_and_timeout(self):
-        with patch("watchdog_core.subprocess.run") as run:
+        with patch("watchdog_checks.nas.subprocess.run") as run:
             run.return_value.returncode = 0
             run.return_value.stdout = "Disk|BACKUP|\n"
 
@@ -533,7 +517,7 @@ homes                                           Disk
             self.assertEqual(run.call_args.kwargs["timeout"], 5.0)
 
     def test_wifi_interface_detection_uses_nmcli_wifi_device(self):
-        with patch("watchdog_core.subprocess.run") as run:
+        with patch("watchdog_checks.wifi.subprocess.run") as run:
             run.return_value.returncode = 0
             run.return_value.stdout = "eth0:ethernet:connected\nwlan0:wifi:disconnected\n"
 
@@ -543,7 +527,7 @@ homes                                           Disk
             self.assertEqual(args, ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "device", "status"])
 
     def test_interface_ipv4_detection_uses_ip_addr(self):
-        with patch("watchdog_core.subprocess.run") as run:
+        with patch("watchdog_checks.wifi.subprocess.run") as run:
             run.return_value.returncode = 0
             run.return_value.stdout = (
                 "3: wlan0    inet 192.168.50.218/24 brd 192.168.50.255 "
@@ -557,7 +541,7 @@ homes                                           Disk
             self.assertEqual(run.call_args.kwargs["timeout"], 1.0)
 
     def test_wifi_profile_lookup_finds_saved_profile_by_ssid(self):
-        with patch("watchdog_core.nmcli_output") as output:
+        with patch("watchdog_checks.wifi.nmcli_output") as output:
             output.side_effect = [
                 "netplan-wlan0-example-wifi:wifi\nexample-iot:wifi\n",
                 "example-wifi\n",
@@ -575,8 +559,8 @@ homes                                           Disk
         )
 
     def test_connect_wifi_uses_saved_profile_before_device_connect(self):
-        with patch("watchdog_core.wifi_profile_for_ssid_linux", return_value="netplan-wlan0-example-wifi"):
-            with patch("watchdog_core.nmcli_run", return_value=True) as nmcli:
+        with patch("watchdog_checks.wifi.wifi_profile_for_ssid_linux", return_value="netplan-wlan0-example-wifi"):
+            with patch("watchdog_checks.wifi.nmcli_run", return_value=True) as nmcli:
                 self.assertTrue(connect_wifi_linux("example-wifi", "test-wifi-pass", "wlan0", 25.0))
 
         nmcli.assert_called_once_with(
@@ -585,8 +569,8 @@ homes                                           Disk
         )
 
     def test_connect_wifi_falls_back_to_device_connect(self):
-        with patch("watchdog_core.wifi_profile_for_ssid_linux", return_value=None):
-            with patch("watchdog_core.nmcli_run", return_value=True) as nmcli:
+        with patch("watchdog_checks.wifi.wifi_profile_for_ssid_linux", return_value=None):
+            with patch("watchdog_checks.wifi.nmcli_run", return_value=True) as nmcli:
                 self.assertTrue(connect_wifi_linux("example-wifi", "test-wifi-pass", "wlan0", 25.0))
 
         args = nmcli.call_args.args[0]
@@ -594,11 +578,11 @@ homes                                           Disk
         self.assertEqual(nmcli.call_args.kwargs["input_text"], "test-wifi-pass\n")
 
     def test_wifi_network_check_uses_profile_and_pings_via_source_ip(self):
-        with patch("watchdog_core.detect_wifi_interface_linux", return_value="wlan0") as detect:
-            with patch("watchdog_core.wifi_profile_for_ssid_linux", return_value="netplan-wlan0-example-wifi"):
-                with patch("watchdog_core.nmcli_run", return_value=True) as nmcli:
-                    with patch("watchdog_core.wait_for_interface_ipv4_linux", return_value="192.168.50.218") as wait_ip:
-                        with patch("watchdog_core.ping_host_linux", return_value=True) as ping:
+        with patch("watchdog_checks.wifi.detect_wifi_interface_linux", return_value="wlan0") as detect:
+            with patch("watchdog_checks.wifi.wifi_profile_for_ssid_linux", return_value="netplan-wlan0-example-wifi"):
+                with patch("watchdog_checks.wifi.nmcli_run", return_value=True) as nmcli:
+                    with patch("watchdog_checks.wifi.wait_for_interface_ipv4_linux", return_value="192.168.50.218") as wait_ip:
+                        with patch("watchdog_checks.wifi.ping_host_linux", return_value=True) as ping:
                             self.assertTrue(
                                 check_wifi_network_linux(
                                     "example-wifi",
@@ -624,11 +608,11 @@ homes                                           Disk
         self.assertEqual(nmcli.call_args_list[-1].args[0], ["nmcli", "--wait", "5", "radio", "wifi", "off"])
 
     def test_wifi_network_check_turns_radio_off_when_connect_fails(self):
-        with patch("watchdog_core.detect_wifi_interface_linux", return_value="wlan0"):
-            with patch("watchdog_core.wifi_profile_for_ssid_linux", return_value=None):
-                with patch("watchdog_core.nmcli_run", side_effect=[True, False, True, True]) as nmcli:
-                    with patch("watchdog_core.wait_for_interface_ipv4_linux") as wait_ip:
-                        with patch("watchdog_core.ping_host_linux") as ping:
+        with patch("watchdog_checks.wifi.detect_wifi_interface_linux", return_value="wlan0"):
+            with patch("watchdog_checks.wifi.wifi_profile_for_ssid_linux", return_value=None):
+                with patch("watchdog_checks.wifi.nmcli_run", side_effect=[True, False, True, True]) as nmcli:
+                    with patch("watchdog_checks.wifi.wait_for_interface_ipv4_linux") as wait_ip:
+                        with patch("watchdog_checks.wifi.ping_host_linux") as ping:
                             self.assertFalse(
                                 check_wifi_network_linux(
                                     "example-wifi",
@@ -648,16 +632,15 @@ homes                                           Disk
 
     def test_default_service_runner_batches_wifi_checks(self):
         fake_checkers = {service: (lambda: True) for service in CHECK_ORDER}
+        fake_checkers["WIFI"] = lambda: {"WIFI": True, "IOT WIFI": False}
         progress = []
 
-        with patch("watchdog_core.DEFAULT_CHECKERS", fake_checkers):
-            with patch("watchdog_core.check_wifi_pair", return_value={"WIFI": True, "IOT WIFI": False}) as wifi_pair:
-                results = run_service_checks(
-                    progress_callback=lambda service, current: progress.append((service, dict(current))),
-                    step_delay_seconds=0,
-                )
+        results = run_service_checks(
+            fake_checkers,
+            progress_callback=lambda service, current: progress.append((service, dict(current))),
+            step_delay_seconds=0,
+        )
 
-        wifi_pair.assert_called_once()
         self.assertEqual(results["WIFI"], Status.OK)
         self.assertEqual(results["IOT WIFI"], Status.FAIL)
         progress_services = [service for service, _current in progress]
@@ -665,11 +648,11 @@ homes                                           Disk
 
     def test_nas_checker_uses_configured_settings(self):
         config = make_test_config()
-        configure_checks(config)
+        checkers = build_checkers(config)
 
-        with patch("watchdog_core.check_tcp_port", return_value=True) as tcp:
-            with patch("watchdog_core.check_smb_share_linux", return_value=True) as smb:
-                self.assertTrue(check_nas())
+        with patch("watchdog_checks.check_tcp_port", return_value=True) as tcp:
+            with patch("watchdog_checks.check_smb_share_linux", return_value=True) as smb:
+                self.assertTrue(checkers["NAS"]())
 
         tcp.assert_called_once_with(
             config.nas.address,

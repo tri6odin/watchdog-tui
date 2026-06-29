@@ -3,7 +3,8 @@
 Точка входа Watchdog TUI.
 
 Основная логика разнесена по модулям:
-- watchdog_core.py - сервисы, статусы, проверки и агрегация;
+- watchdog_core.py - сервисы, статусы, порядок и агрегация;
+- watchdog_checks/ - реальные проверки сети, Wi-Fi, NAS, HAOS и Zigbee;
 - watchdog_db.py - SQLite-история;
 - watchdog_ui.py - curses-интерфейс.
 """
@@ -16,8 +17,9 @@ import locale
 import sys
 from pathlib import Path
 
+from watchdog_checks import build_checkers
 from watchdog_config import DEFAULT_CONFIG_PATH, ConfigError, load_watchdog_config
-from watchdog_core import CHECK_ORDER, DEFAULT_UPDATE_INTERVAL_SECONDS, configure_checks, run_service_checks
+from watchdog_core import CHECK_ORDER, DEFAULT_UPDATE_INTERVAL_SECONDS, run_service_checks
 from watchdog_db import WatchdogDB
 from watchdog_ui import run_tui
 
@@ -56,7 +58,7 @@ def main() -> int:
     args = parse_args()
     try:
         config = load_watchdog_config(args.config)
-        configure_checks(config)
+        checkers = build_checkers(config)
     except ConfigError as exc:
         print(f"Ошибка конфигурации: {exc}", file=sys.stderr)
         return 2
@@ -64,7 +66,7 @@ def main() -> int:
     db = WatchdogDB(args.db)
     try:
         if args.once:
-            results = run_service_checks(step_delay_seconds=0)
+            results = run_service_checks(checkers, step_delay_seconds=0)
             db.save_results(results)
             for service in CHECK_ORDER:
                 print(f"{service:8s} {results[service].value}")
@@ -73,7 +75,7 @@ def main() -> int:
         # Локаль важно включить до curses.wrapper/initscr, чтобы Python curses
         # корректно передавал в терминал Unicode-рамки, квадраты и индексы шкалы.
         locale.setlocale(locale.LC_ALL, "")
-        curses.wrapper(run_tui, db, args.interval, config.touch)
+        curses.wrapper(run_tui, db, args.interval, config.touch, checkers)
         return 0
     finally:
         db.close()
