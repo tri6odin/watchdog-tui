@@ -102,7 +102,21 @@ def wait_for_interface_no_ipv4_linux(
 
 
 def active_wifi_ssid_linux(interface: str, timeout_seconds: float) -> Optional[str]:
-    """Return currently associated SSID according to iw."""
+    """Return currently associated SSID according to NetworkManager, with iw fallback."""
+
+    active_connection = nmcli_output(
+        ["nmcli", "-g", "GENERAL.CONNECTION", "device", "show", interface],
+        timeout_seconds,
+    )
+    if active_connection is not None:
+        profile = active_connection.strip().splitlines()[:1]
+        if profile and profile[0] and profile[0] != "--":
+            ssid = wifi_ssid_for_profile_linux(profile[0], timeout_seconds)
+            if ssid is not None:
+                wifi_debug_log(f"active ssid nmcli: interface={interface} profile={profile[0]} ssid={ssid}")
+                return ssid
+            wifi_debug_log(f"active ssid nmcli: interface={interface} profile={profile[0]} ssid=unknown")
+            return profile[0]
 
     hard_timeout = max(0.001, timeout_seconds)
     try:
@@ -123,6 +137,7 @@ def active_wifi_ssid_linux(interface: str, timeout_seconds: float) -> Optional[s
     for line in result.stdout.splitlines():
         stripped = line.strip()
         if stripped.startswith("SSID: "):
+            wifi_debug_log(f"active ssid iw: interface={interface} ssid={stripped.removeprefix('SSID: ')}")
             return stripped.removeprefix("SSID: ")
     return None
 
@@ -233,6 +248,60 @@ def nmcli_output(command: list[str], timeout_seconds: float) -> Optional[str]:
     return result.stdout
 
 
+def wifi_ssid_for_profile_linux(profile: str, timeout_seconds: float) -> Optional[str]:
+    """Return configured SSID for a saved NetworkManager Wi-Fi profile."""
+
+    profile_ssid = nmcli_output(
+        ["nmcli", "-g", "802-11-wireless.ssid", "connection", "show", profile],
+        timeout_seconds,
+    )
+    if profile_ssid is None:
+        return None
+
+    lines = profile_ssid.strip().splitlines()
+    if not lines or not lines[0]:
+        return None
+    return lines[0]
+
+
+def wifi_device_state_linux(interface: str, timeout_seconds: float) -> Optional[str]:
+    """Return NetworkManager state for a Wi-Fi interface."""
+
+    output = nmcli_output(["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "device", "status"], timeout_seconds)
+    if output is None:
+        return None
+
+    for line in output.splitlines():
+        parts = line.split(":")
+        if len(parts) >= 3 and parts[0] == interface and parts[1] == "wifi":
+            return parts[2]
+    return None
+
+
+def wait_for_wifi_device_available_linux(
+    interface: str,
+    timeout_seconds: float,
+    poll_interval_seconds: float = 0.2,
+) -> bool:
+    """Wait until NetworkManager considers a Wi-Fi device usable after radio on."""
+
+    hard_timeout = max(0.001, timeout_seconds)
+    deadline = time.monotonic() + hard_timeout
+    last_state = None
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            wifi_debug_log(f"device available timeout: interface={interface} last_state={last_state}")
+            return False
+
+        last_state = wifi_device_state_linux(interface, min(remaining, 1.0))
+        if last_state is not None and last_state not in ("unavailable", "unmanaged"):
+            wifi_debug_log(f"device available: interface={interface} state={last_state}")
+            return True
+
+        time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
+
+
 def wifi_profile_for_ssid_linux(ssid: str, timeout_seconds: float) -> Optional[str]:
     """Find saved NetworkManager connection profile for an SSID."""
 
@@ -246,11 +315,7 @@ def wifi_profile_for_ssid_linux(ssid: str, timeout_seconds: float) -> Optional[s
         name, connection_type = line.rsplit(":", 1)
         if connection_type not in ("wifi", "802-11-wireless"):
             continue
-        profile_ssid = nmcli_output(
-            ["nmcli", "-g", "802-11-wireless.ssid", "connection", "show", name],
-            timeout_seconds,
-        )
-        if profile_ssid is not None and profile_ssid.strip().splitlines()[:1] == [ssid]:
+        if wifi_ssid_for_profile_linux(name, timeout_seconds) == ssid:
             return name
     return None
 
@@ -279,6 +344,11 @@ def connect_wifi_linux(
         wifi_debug_log(f"connect fail: ssid={ssid} no password and no working profile")
         return False
 
+    rescan_timeout = min(timeout_seconds, 10.0)
+    nmcli_run(
+        ["nmcli", "--wait", nmcli_wait_arg(rescan_timeout), "device", "wifi", "rescan", "ifname", interface],
+        rescan_timeout,
+    )
     wifi_debug_log(f"connect fallback: ssid={ssid} interface={interface}")
     return nmcli_run(
         [
@@ -382,6 +452,10 @@ def check_wifi_network_linux(
     try:
         if not radio_on:
             return False
+        device_ready = wait_for_wifi_device_available_linux(wifi_interface, min(connect_timeout_seconds, 10.0))
+        wifi_debug_log(f"WIFI: device ready ok={device_ready}")
+        if not device_ready:
+            return False
         return check_connected_wifi_network_linux(
             ssid,
             password,
@@ -419,6 +493,10 @@ def check_wifi_pair(wifi_config: WifiConfig, iot_wifi_config: WifiConfig) -> Map
 
     try:
         if not radio_on:
+            return {"WIFI": False, "IOT WIFI": False}
+        device_ready = wait_for_wifi_device_available_linux(wifi_interface, min(radio_timeout, 10.0))
+        wifi_debug_log(f"PAIR: device ready ok={device_ready}")
+        if not device_ready:
             return {"WIFI": False, "IOT WIFI": False}
         wifi_ok = check_connected_wifi_network_linux(
             wifi_config.ssid,
