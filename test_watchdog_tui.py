@@ -29,10 +29,12 @@ from watchdog_checks.haos import check_home_assistant_api, check_http_endpoint
 from watchdog_checks.nas import check_smb_share_linux, smb_share_is_listed
 from watchdog_checks.network import check_tcp_port, check_tls_handshake, ping_host_linux
 from watchdog_checks.wifi import (
+    active_wifi_ssid_linux,
     check_wifi_network_linux,
     connect_wifi_linux,
     detect_wifi_interface_linux,
     interface_ipv4_address_linux,
+    wait_for_interface_no_ipv4_linux,
     wifi_profile_for_ssid_linux,
 )
 from watchdog_core import (
@@ -540,6 +542,24 @@ homes                                           Disk
             self.assertEqual(args, ["ip", "-4", "-o", "addr", "show", "dev", "wlan0", "scope", "global"])
             self.assertEqual(run.call_args.kwargs["timeout"], 1.0)
 
+    def test_active_wifi_ssid_uses_iw_link(self):
+        with patch("watchdog_checks.wifi.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "Connected to aa:bb:cc:dd:ee:ff\n\tSSID: example-iot\n"
+
+            self.assertEqual(active_wifi_ssid_linux("wlan0", 1.0), "example-iot")
+
+            args = run.call_args.args[0]
+            self.assertEqual(args, ["iw", "dev", "wlan0", "link"])
+
+    def test_wait_for_interface_no_ipv4_returns_when_address_is_gone(self):
+        with patch("watchdog_checks.wifi.interface_ipv4_address_linux", return_value=None) as ip:
+            self.assertTrue(wait_for_interface_no_ipv4_linux("wlan0", 1.0))
+
+        ip.assert_called_once()
+        self.assertEqual(ip.call_args.args[0], "wlan0")
+        self.assertLessEqual(ip.call_args.args[1], 1.0)
+
     def test_wifi_profile_lookup_finds_saved_profile_by_ssid(self):
         with patch("watchdog_checks.wifi.nmcli_output") as output:
             output.side_effect = [
@@ -581,19 +601,22 @@ homes                                           Disk
         with patch("watchdog_checks.wifi.detect_wifi_interface_linux", return_value="wlan0") as detect:
             with patch("watchdog_checks.wifi.wifi_profile_for_ssid_linux", return_value="netplan-wlan0-example-wifi"):
                 with patch("watchdog_checks.wifi.nmcli_run", return_value=True) as nmcli:
-                    with patch("watchdog_checks.wifi.wait_for_interface_ipv4_linux", return_value="192.168.50.218") as wait_ip:
-                        with patch("watchdog_checks.wifi.ping_host_linux", return_value=True) as ping:
-                            self.assertTrue(
-                                check_wifi_network_linux(
-                                    "example-wifi",
-                                    "test-wifi-pass",
-                                    "192.168.50.1",
-                                    "auto",
-                                    25.0,
-                                    1.0,
-                                    True,
-                                )
-                            )
+                    with patch("watchdog_checks.wifi.wait_for_connected_ssid_linux", return_value=True) as wait_ssid:
+                        with patch("watchdog_checks.wifi.active_wifi_ssid_linux", return_value="example-wifi"):
+                            with patch("watchdog_checks.wifi.wait_for_interface_ipv4_linux", return_value="192.168.50.218") as wait_ip:
+                                with patch("watchdog_checks.wifi.wait_for_interface_no_ipv4_linux", return_value=True) as wait_no_ip:
+                                    with patch("watchdog_checks.wifi.ping_host_linux", return_value=True) as ping:
+                                        self.assertTrue(
+                                            check_wifi_network_linux(
+                                                "example-wifi",
+                                                "test-wifi-pass",
+                                                "192.168.50.1",
+                                                "auto",
+                                                25.0,
+                                                1.0,
+                                                True,
+                                            )
+                                        )
 
         detect.assert_called_once_with("auto", 5.0)
         connect_command = nmcli.call_args_list[1].args[0]
@@ -602,8 +625,10 @@ homes                                           Disk
             ["nmcli", "--wait", "25", "connection", "up", "id", "netplan-wlan0-example-wifi", "ifname", "wlan0"],
         )
         self.assertNotIn("test-wifi-pass", connect_command)
+        wait_ssid.assert_called_once_with("wlan0", "example-wifi", 5.0)
         wait_ip.assert_called_once_with("wlan0", 5.0)
-        ping.assert_called_once_with("192.168.50.1", 1.0, interface="192.168.50.218", count=3)
+        ping.assert_called_once_with("192.168.50.1", 1.0, interface="192.168.50.218", count=1)
+        wait_no_ip.assert_called_once_with("wlan0", 5.0)
         self.assertEqual(nmcli.call_args_list[-2].args[0], ["nmcli", "--wait", "5", "device", "disconnect", "wlan0"])
         self.assertEqual(nmcli.call_args_list[-1].args[0], ["nmcli", "--wait", "5", "radio", "wifi", "off"])
 
@@ -611,20 +636,24 @@ homes                                           Disk
         with patch("watchdog_checks.wifi.detect_wifi_interface_linux", return_value="wlan0"):
             with patch("watchdog_checks.wifi.wifi_profile_for_ssid_linux", return_value=None):
                 with patch("watchdog_checks.wifi.nmcli_run", side_effect=[True, False, True, True]) as nmcli:
-                    with patch("watchdog_checks.wifi.wait_for_interface_ipv4_linux") as wait_ip:
-                        with patch("watchdog_checks.wifi.ping_host_linux") as ping:
-                            self.assertFalse(
-                                check_wifi_network_linux(
-                                    "example-wifi",
-                                    "test-wifi-pass",
-                                    "192.168.50.1",
-                                    "auto",
-                                    25.0,
-                                    1.0,
-                                    True,
-                                )
-                            )
+                    with patch("watchdog_checks.wifi.wait_for_connected_ssid_linux") as wait_ssid:
+                        with patch("watchdog_checks.wifi.wait_for_interface_ipv4_linux") as wait_ip:
+                            with patch("watchdog_checks.wifi.wait_for_interface_no_ipv4_linux", return_value=True):
+                                with patch("watchdog_checks.wifi.active_wifi_ssid_linux", return_value=None):
+                                    with patch("watchdog_checks.wifi.ping_host_linux") as ping:
+                                        self.assertFalse(
+                                            check_wifi_network_linux(
+                                                "example-wifi",
+                                                "test-wifi-pass",
+                                                "192.168.50.1",
+                                                "auto",
+                                                25.0,
+                                                1.0,
+                                                True,
+                                            )
+                                        )
 
+        wait_ssid.assert_not_called()
         wait_ip.assert_not_called()
         ping.assert_not_called()
         self.assertEqual(nmcli.call_args_list[-2].args[0], ["nmcli", "--wait", "5", "device", "disconnect", "wlan0"])
