@@ -41,7 +41,8 @@ LCL NET, INT NET, VPN, WIFI, IOT WIFI, NAS, HAOS, ZIGBEE
   10-минутном интервале;
 - Wi-Fi-проверки рассчитаны на root-запуск, потому что NetworkManager требует
   права для переключения сетей;
-- Wi-Fi radio просыпается на время проверки и выключается после нее;
+- Wi-Fi radio просыпается один раз на проверку `WIFI + IOT WIFI` и выключается
+  после нее;
 - секреты не передаются через аргументы процессов.
 
 Рекомендуемая система: Raspberry Pi OS Lite 64-bit. Desktop-окружение не нужно:
@@ -396,16 +397,20 @@ ping -c 1 -W <timeout> <address>
 `VPN`: TCP connect и TLS handshake до `[vpn]`, по умолчанию
 `instagram.com:443`. Эта проверка не зависит от `INT NET`.
 
-`WIFI` и `IOT WIFI`: включить Wi-Fi radio, подключиться к SSID, дождаться IPv4
-на `wlan0`, пинговать шлюз с source address Wi-Fi-интерфейса, отключить
-интерфейс и выключить Wi-Fi radio.
+`WIFI` и `IOT WIFI`: включить Wi-Fi radio один раз, проверить обе сети по
+очереди, потом выключить radio. Для подключения watchdog сначала ищет
+сохраненный NetworkManager connection profile по SSID и делает
+`nmcli connection up`. Если profile не найден или не поднялся, используется
+fallback через `nmcli device wifi connect`.
 
 ```bash
 nmcli -t -f DEVICE,TYPE,STATE device status
 nmcli --wait <timeout> radio wifi on
+nmcli --wait <timeout> connection up id <profile> ifname <wlan>
+# fallback:
 nmcli --wait <timeout> --ask device wifi connect <ssid> ifname <wlan>
 ip -4 -o addr show dev <wlan> scope global
-ping -c 1 -W <timeout> -I <wlan-ipv4> <gateway>
+ping -c 3 -W <timeout> -I <wlan-ipv4> <gateway>
 nmcli --wait 5 device disconnect <wlan>
 nmcli --wait 5 radio wifi off
 ```
@@ -414,7 +419,9 @@ nmcli --wait 5 radio wifi off
 Это защищает от ситуации, когда Linux отправляет пакет через `wlan0`, но
 выбирает source address с другого интерфейса.
 
-Wi-Fi пароль передается в `nmcli --ask` через stdin.
+Wi-Fi пароль передается в `nmcli --ask` через stdin только при fallback на
+`device wifi connect`. Если найден saved profile, пароль берется из
+NetworkManager profile.
 
 `NAS`: TCP connect до SMB-порта, потом проверка, что нужная шара видна через
 `smbclient -L`.

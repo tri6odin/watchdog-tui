@@ -164,22 +164,26 @@ def require_runtime_config() -> WatchdogConfig:
     return _RUNTIME_CONFIG
 
 
-def ping_host_linux(host: str, timeout_seconds: float, interface: Optional[str] = None) -> bool:
+def ping_host_linux(
+    host: str,
+    timeout_seconds: float,
+    interface: Optional[str] = None,
+    count: int = 1,
+) -> bool:
     """Проверить хост одним ICMP ping под Linux/Raspberry Pi.
 
     Флаги здесь намеренно Linux/iputils-специфичные:
-    - -c 1 отправляет один пакет;
+    - -c задает количество пакетов;
     - -W принимает таймаут ответа в секундах.
     - -I принимает и имя интерфейса, и source address.
-
-    timeout у subprocess равен пользовательскому таймауту. Это жесткий потолок:
-    если ping по какой-то причине живет дольше, Watchdog прерывает проверку.
     """
 
     hard_timeout = max(0.001, timeout_seconds)
+    packet_count = max(1, int(count))
     ping_timeout_seconds = max(1, int(hard_timeout))
+    process_timeout = hard_timeout * packet_count + max(0, packet_count - 1)
     try:
-        command = ["ping", "-c", "1", "-W", str(ping_timeout_seconds)]
+        command = ["ping", "-c", str(packet_count), "-W", str(ping_timeout_seconds)]
         if interface is not None:
             command.extend(["-I", interface])
         command.append(host)
@@ -188,7 +192,7 @@ def ping_host_linux(host: str, timeout_seconds: float, interface: Optional[str] 
             command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=hard_timeout,
+            timeout=process_timeout,
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
@@ -302,6 +306,115 @@ def nmcli_run(command: list[str], timeout_seconds: float, input_text: Optional[s
     return result.returncode == 0
 
 
+def nmcli_output(command: list[str], timeout_seconds: float) -> Optional[str]:
+    """Выполнить nmcli-команду и вернуть stdout, если команда успешна."""
+
+    hard_timeout = max(0.001, timeout_seconds)
+    try:
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=hard_timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def wifi_profile_for_ssid_linux(ssid: str, timeout_seconds: float) -> Optional[str]:
+    """Найти сохраненный NetworkManager connection profile для SSID."""
+
+    output = nmcli_output(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"], timeout_seconds)
+    if output is None:
+        return None
+
+    for line in output.splitlines():
+        if ":" not in line:
+            continue
+        name, connection_type = line.rsplit(":", 1)
+        if connection_type not in ("wifi", "802-11-wireless"):
+            continue
+        profile_ssid = nmcli_output(
+            ["nmcli", "-g", "802-11-wireless.ssid", "connection", "show", name],
+            timeout_seconds,
+        )
+        if profile_ssid is not None and profile_ssid.strip().splitlines()[:1] == [ssid]:
+            return name
+    return None
+
+
+def connect_wifi_linux(
+    ssid: str,
+    password: str,
+    interface: str,
+    timeout_seconds: float,
+) -> bool:
+    """Подключиться к Wi-Fi через saved profile, fallback - device wifi connect."""
+
+    wait_arg = nmcli_wait_arg(timeout_seconds)
+    profile = wifi_profile_for_ssid_linux(ssid, min(timeout_seconds, 5.0))
+    if profile is not None:
+        connected = nmcli_run(
+            ["nmcli", "--wait", wait_arg, "connection", "up", "id", profile, "ifname", interface],
+            timeout_seconds,
+        )
+        if connected:
+            return True
+
+    if not password:
+        return False
+
+    return nmcli_run(
+        [
+            "nmcli",
+            "--wait",
+            wait_arg,
+            "--ask",
+            "device",
+            "wifi",
+            "connect",
+            ssid,
+            "ifname",
+            interface,
+        ],
+        timeout_seconds,
+        input_text=f"{password}\n",
+    )
+
+
+def check_connected_wifi_network_linux(
+    ssid: str,
+    password: str,
+    gateway: str,
+    wifi_interface: str,
+    connect_timeout_seconds: float,
+    ping_timeout_seconds: float,
+    disconnect_after_check: bool,
+) -> bool:
+    """Проверить одну Wi-Fi сеть, предполагая, что radio уже включен."""
+
+    try:
+        connected = connect_wifi_linux(ssid, password, wifi_interface, connect_timeout_seconds)
+        if not connected:
+            return False
+
+        source_address = wait_for_interface_ipv4_linux(wifi_interface, min(connect_timeout_seconds, 5.0))
+        if source_address is None:
+            return False
+        return ping_host_linux(gateway, ping_timeout_seconds, interface=source_address, count=3)
+    finally:
+        if disconnect_after_check:
+            nmcli_run(
+                ["nmcli", "--wait", "5", "device", "disconnect", wifi_interface],
+                5.0,
+            )
+
+
 def check_wifi_network_linux(
     ssid: str,
     password: str,
@@ -313,7 +426,7 @@ def check_wifi_network_linux(
 ) -> bool:
     """Подключиться к Wi-Fi сети и проверить шлюз через Wi-Fi интерфейс."""
 
-    if not ssid.strip() or not password:
+    if not ssid.strip():
         return False
 
     wifi_interface = detect_wifi_interface_linux(interface, min(connect_timeout_seconds, 5.0))
@@ -323,35 +436,17 @@ def check_wifi_network_linux(
     wait_arg = nmcli_wait_arg(connect_timeout_seconds)
     nmcli_run(["nmcli", "--wait", wait_arg, "radio", "wifi", "on"], connect_timeout_seconds)
     try:
-        connected = nmcli_run(
-            [
-                "nmcli",
-                "--wait",
-                wait_arg,
-                "--ask",
-                "device",
-                "wifi",
-                "connect",
-                ssid,
-                "ifname",
-                wifi_interface,
-            ],
+        return check_connected_wifi_network_linux(
+            ssid,
+            password,
+            gateway,
+            wifi_interface,
             connect_timeout_seconds,
-            input_text=f"{password}\n",
+            ping_timeout_seconds,
+            disconnect_after_check,
         )
-        if not connected:
-            return False
-
-        source_address = wait_for_interface_ipv4_linux(wifi_interface, min(connect_timeout_seconds, 5.0))
-        if source_address is None:
-            return False
-        return ping_host_linux(gateway, ping_timeout_seconds, interface=source_address)
     finally:
         if disconnect_after_check:
-            nmcli_run(
-                ["nmcli", "--wait", "5", "device", "disconnect", wifi_interface],
-                5.0,
-            )
             nmcli_run(["nmcli", "--wait", "5", "radio", "wifi", "off"], 5.0)
 
 
@@ -633,6 +728,48 @@ def check_iot_wifi() -> bool:
     )
 
 
+def check_wifi_pair() -> Dict[str, bool]:
+    """Проверить основную и IoT Wi-Fi сети за одно включение Wi-Fi radio."""
+
+    config = require_runtime_config()
+    interface_timeout = min(
+        config.wifi.connect_timeout_seconds,
+        config.iot_wifi.connect_timeout_seconds,
+        5.0,
+    )
+    wifi_interface = detect_wifi_interface_linux(config.wifi.interface, interface_timeout)
+    if wifi_interface is None:
+        return {"WIFI": False, "IOT WIFI": False}
+
+    radio_timeout = max(config.wifi.connect_timeout_seconds, config.iot_wifi.connect_timeout_seconds)
+    wait_arg = nmcli_wait_arg(radio_timeout)
+    nmcli_run(["nmcli", "--wait", wait_arg, "radio", "wifi", "on"], radio_timeout)
+
+    try:
+        wifi_ok = check_connected_wifi_network_linux(
+            config.wifi.ssid,
+            config.wifi.password,
+            config.wifi.gateway,
+            wifi_interface,
+            config.wifi.connect_timeout_seconds,
+            config.wifi.ping_timeout_seconds,
+            config.wifi.disconnect_after_check,
+        )
+        iot_wifi_ok = check_connected_wifi_network_linux(
+            config.iot_wifi.ssid,
+            config.iot_wifi.password,
+            config.iot_wifi.gateway,
+            wifi_interface,
+            config.iot_wifi.connect_timeout_seconds,
+            config.iot_wifi.ping_timeout_seconds,
+            config.iot_wifi.disconnect_after_check,
+        )
+        return {"WIFI": wifi_ok, "IOT WIFI": iot_wifi_ok}
+    finally:
+        if config.wifi.disconnect_after_check or config.iot_wifi.disconnect_after_check:
+            nmcli_run(["nmcli", "--wait", "5", "radio", "wifi", "off"], 5.0)
+
+
 def check_zigbee() -> bool:
     """Заглушка проверки Zigbee-инфраструктуры."""
 
@@ -761,10 +898,28 @@ def run_service_checks(
 
     active_checkers = DEFAULT_CHECKERS if checkers is None else checkers
     results: Dict[str, Status] = {}
+    skip_services = set()
 
     for service in CHECK_ORDER:
+        if service in skip_services:
+            continue
+
         if should_skip_by_dependency(service, results):
             status = Status.UNKNOWN
+        elif checkers is None and service == "WIFI":
+            try:
+                wifi_results = check_wifi_pair()
+            except Exception:
+                wifi_results = {"WIFI": False, "IOT WIFI": False}
+
+            for wifi_service in ("WIFI", "IOT WIFI"):
+                results[wifi_service] = Status.OK if wifi_results[wifi_service] else Status.FAIL
+                if progress_callback is not None:
+                    progress_callback(wifi_service, dict(results))
+                if step_delay_seconds > 0:
+                    time.sleep(step_delay_seconds)
+            skip_services.add("IOT WIFI")
+            continue
         else:
             try:
                 status = Status.OK if active_checkers[service]() else Status.FAIL
