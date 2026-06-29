@@ -161,7 +161,7 @@ sudo env ADVANCED_WATCHDOG_CONF=1 scripts/configure_raspberry_pi_host.sh
 Скрипт ставит базовые пакеты:
 
 ```text
-git python3 iputils-ping curl smbclient network-manager iw rfkill fontconfig
+git python3 iproute2 iputils-ping curl smbclient network-manager iw rfkill fontconfig
 ```
 
 Для полноэкранного TUI на `tty1` ставятся:
@@ -292,8 +292,8 @@ Assistant.
 interface = wlan0
 ```
 
-`disconnect_after_check = true` отключает Wi-Fi интерфейс после проверки, чтобы
-следующие проверки не зависели от того, какая Wi-Fi сеть была выбрана последней.
+`disconnect_after_check = true` отключает Wi-Fi интерфейс после проверки и
+выключает Wi-Fi radio, чтобы модуль просыпался только на время проверки.
 Ethernet при этом продолжает держать основное соединение.
 
 `watchdog.conf` содержит реальные адреса, токены и пароли. Он не должен
@@ -330,16 +330,22 @@ ping -c 1 -W <timeout> <address>
 `instagram.com:443`. Эта проверка не зависит от `INT NET`.
 
 `WIFI` и `IOT WIFI`: поиск Wi-Fi интерфейса через NetworkManager, подключение к
-SSID из конфига, ping шлюза через Wi-Fi интерфейс и disconnect после проверки,
-если это включено.
+SSID из конфига, ожидание IPv4 на Wi-Fi интерфейсе, ping шлюза с source address
+этого интерфейса и disconnect/radio off после проверки, если это включено.
 
 ```bash
 nmcli -t -f DEVICE,TYPE,STATE device status
 nmcli --wait <timeout> radio wifi on
 nmcli --wait <timeout> --ask device wifi connect <ssid> ifname <wlan>
-ping -c 1 -W <timeout> -I <wlan> <gateway>
+ip -4 -o addr show dev <wlan> scope global
+ping -c 1 -W <timeout> -I <wlan-ipv4> <gateway>
 nmcli --wait 5 device disconnect <wlan>
+nmcli --wait 5 radio wifi off
 ```
+
+Важно: watchdog пингует через IPv4-адрес `wlan0`, а не просто через имя
+интерфейса. Это защищает от ситуации, когда Linux отправляет пакет через
+`wlan0`, но выбирает source address с другого интерфейса.
 
 Wi-Fi пароль передается в `nmcli --ask` через stdin, а не через аргументы
 процесса.
@@ -441,7 +447,8 @@ nmcli -f IN-USE,SSID,BSSID,CHAN,FREQ,SIGNAL,SECURITY device wifi list ifname wla
 Проверить, что ping идет именно через Wi-Fi:
 
 ```bash
-ping -I wlan0 -c 3 -W 1 192.168.50.1
+ip -4 -o addr show dev wlan0 scope global
+ping -I <wlan0-ipv4> -c 3 -W 1 192.168.50.1
 ```
 
 Если `nmcli` не видит сеть, но есть подозрение, что сеть в эфире:

@@ -70,7 +70,7 @@ install_base_packages() {
     log "Installing base packages"
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
-    apt-get install -y git python3 iputils-ping curl smbclient network-manager iw rfkill fontconfig
+    apt-get install -y git python3 iproute2 iputils-ping curl smbclient network-manager iw rfkill fontconfig
 }
 
 write_bookworm_repo() {

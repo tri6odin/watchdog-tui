@@ -170,6 +170,7 @@ def ping_host_linux(host: str, timeout_seconds: float, interface: Optional[str] 
     Флаги здесь намеренно Linux/iputils-специфичные:
     - -c 1 отправляет один пакет;
     - -W принимает таймаут ответа в секундах.
+    - -I принимает и имя интерфейса, и source address.
 
     timeout у subprocess равен пользовательскому таймауту. Это жесткий потолок:
     если ping по какой-то причине живет дольше, Watchdog прерывает проверку.
@@ -193,6 +194,57 @@ def ping_host_linux(host: str, timeout_seconds: float, interface: Optional[str] 
     except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0
+
+
+def interface_ipv4_address_linux(interface: str, timeout_seconds: float) -> Optional[str]:
+    """Вернуть IPv4-адрес интерфейса или None, если адрес еще не назначен."""
+
+    hard_timeout = max(0.001, timeout_seconds)
+    try:
+        result = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show", "dev", interface, "scope", "global"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=hard_timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if "inet" not in parts:
+            continue
+        inet_index = parts.index("inet")
+        if inet_index + 1 >= len(parts):
+            continue
+        return parts[inet_index + 1].split("/", 1)[0]
+    return None
+
+
+def wait_for_interface_ipv4_linux(
+    interface: str,
+    timeout_seconds: float,
+    poll_interval_seconds: float = 0.2,
+) -> Optional[str]:
+    """Дождаться IPv4 на интерфейсе после Wi-Fi association/DHCP."""
+
+    hard_timeout = max(0.001, timeout_seconds)
+    deadline = time.monotonic() + hard_timeout
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+
+        address = interface_ipv4_address_linux(interface, min(remaining, 1.0))
+        if address is not None:
+            return address
+
+        time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
 
 
 def detect_wifi_interface_linux(configured_interface: str, timeout_seconds: float) -> Optional[str]:
@@ -270,33 +322,37 @@ def check_wifi_network_linux(
 
     wait_arg = nmcli_wait_arg(connect_timeout_seconds)
     nmcli_run(["nmcli", "--wait", wait_arg, "radio", "wifi", "on"], connect_timeout_seconds)
-    connected = nmcli_run(
-        [
-            "nmcli",
-            "--wait",
-            wait_arg,
-            "--ask",
-            "device",
-            "wifi",
-            "connect",
-            ssid,
-            "ifname",
-            wifi_interface,
-        ],
-        connect_timeout_seconds,
-        input_text=f"{password}\n",
-    )
-    if not connected:
-        return False
-
     try:
-        return ping_host_linux(gateway, ping_timeout_seconds, interface=wifi_interface)
+        connected = nmcli_run(
+            [
+                "nmcli",
+                "--wait",
+                wait_arg,
+                "--ask",
+                "device",
+                "wifi",
+                "connect",
+                ssid,
+                "ifname",
+                wifi_interface,
+            ],
+            connect_timeout_seconds,
+            input_text=f"{password}\n",
+        )
+        if not connected:
+            return False
+
+        source_address = wait_for_interface_ipv4_linux(wifi_interface, min(connect_timeout_seconds, 5.0))
+        if source_address is None:
+            return False
+        return ping_host_linux(gateway, ping_timeout_seconds, interface=source_address)
     finally:
         if disconnect_after_check:
             nmcli_run(
                 ["nmcli", "--wait", "5", "device", "disconnect", wifi_interface],
                 5.0,
             )
+            nmcli_run(["nmcli", "--wait", "5", "radio", "wifi", "off"], 5.0)
 
 
 def check_http_endpoint(url: str, timeout_seconds: float, user_agent: str) -> bool:
