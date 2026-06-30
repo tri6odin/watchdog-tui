@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import curses
 import time
+from datetime import datetime
 from typing import Iterable, Mapping, MutableMapping, Optional
 
 from touch_swipe import SWIPE_LEFT, SWIPE_RIGHT, TouchSwipeReader
@@ -59,7 +60,25 @@ def navigation_line(active: Screen) -> str:
     for screen in CAROUSEL:
         marker = "▶" if screen == active else "▷"
         parts.append(f"{marker} {screen.value}")
-    return ("  ".join(parts)).center(TOTAL_WIDTH)
+    return "  " + "  ".join(parts)
+
+
+def format_last_update_time(checked_at: Optional[int]) -> str:
+    if checked_at is None:
+        return "--:--"
+    return datetime.fromtimestamp(checked_at).strftime("%H:%M")
+
+
+def footer_line(active: Screen, checked_at: Optional[int] = None) -> str:
+    """Строка навигации с временем последнего обновления справа."""
+
+    navigation = navigation_line(active)
+    if active == Screen.UPDATE:
+        return navigation[:TOTAL_WIDTH].ljust(TOTAL_WIDTH)
+
+    last_update = f"ПОСЛЕДНЕЕ ОБНОВЛЕНИЕ В {format_last_update_time(checked_at)}"
+    spacing = max(1, TOTAL_WIDTH - len(navigation) - len(last_update))
+    return (navigation + " " * spacing + last_update)[:TOTAL_WIDTH]
 
 
 def format_label(service: str) -> str:
@@ -121,6 +140,7 @@ def draw_history_screen(
 
     stdscr.erase()
     history = db.load_history(screen)
+    last_checked_at = db.last_checked_at(screen)
     scale = scale_for_screen(screen)
     scale_line = " " * (1 + LABEL_WIDTH) + scale + " " * (1 + 1 + LABEL_WIDTH) + scale + " " * 2
     top = "╭" + "─" * HALF_WIDTH + "┼" + "─" * HALF_WIDTH + "╮"
@@ -148,7 +168,7 @@ def draw_history_screen(
             addstr_safe(stdscr, y + 1, 0, separator, colors["frame"])
 
     addstr_safe(stdscr, 9, 0, bottom, colors["frame"])
-    addstr_safe(stdscr, 10, 0, navigation_line(screen), colors["label"])
+    addstr_safe(stdscr, 10, 0, footer_line(screen, last_checked_at), colors["label"])
     stdscr.refresh()
 
 
@@ -187,7 +207,7 @@ def draw_update_screen(
         cursor_x += 1
 
     addstr_safe(stdscr, 6, x, bottom, colors["frame"])
-    addstr_safe(stdscr, 10, 0, navigation_line(Screen.UPDATE), colors["label"])
+    addstr_safe(stdscr, 10, 0, footer_line(Screen.UPDATE), colors["label"])
     stdscr.refresh()
 
 
