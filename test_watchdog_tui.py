@@ -346,7 +346,8 @@ B: EV=120013
         line = footer_line(Screen.DAYS, now=now)
 
         self.assertEqual(len(line), TOTAL_WIDTH)
-        self.assertTrue(line.startswith("  ▷ НЕДЕЛИ  ▶ ДНИ  ▷ ЧАСЫ  ▷ ОБНОВИТЬ"))
+        self.assertTrue(line.startswith(" ▷ НЕДЕЛИ  ▶ ДНИ  ▷ ЧАСЫ  ▷ ОБНОВИТЬ"))
+        self.assertTrue(line.endswith(" "))
         self.assertIn("ПОСЛЕДНЕЕ ОБНОВЛЕНИЕ В", line)
         self.assertIn(expected_time, line)
 
@@ -354,7 +355,8 @@ B: EV=120013
         line = footer_line(Screen.UPDATE, now=1_800_000_000)
 
         self.assertEqual(len(line), TOTAL_WIDTH)
-        self.assertTrue(line.startswith("  ▷ НЕДЕЛИ  ▷ ДНИ  ▷ ЧАСЫ  ▶ ОБНОВИТЬ"))
+        self.assertTrue(line.startswith(" ▷ НЕДЕЛИ  ▷ ДНИ  ▷ ЧАСЫ  ▶ ОБНОВИТЬ"))
+        self.assertTrue(line.endswith(" "))
         self.assertNotIn("ПОСЛЕДНЕЕ ОБНОВЛЕНИЕ", line)
 
     def test_default_auto_update_aligns_to_next_history_bucket(self):

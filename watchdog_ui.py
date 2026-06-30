@@ -62,7 +62,7 @@ def navigation_line(active: Screen) -> str:
     for screen in CAROUSEL:
         marker = "▶" if screen == active else "▷"
         parts.append(f"{marker} {screen.value}")
-    return "  " + "  ".join(parts)
+    return " " + "  ".join(parts)
 
 
 def screen_last_update_at(screen: Screen, now: Optional[float] = None) -> int:
@@ -80,12 +80,13 @@ def footer_line(active: Screen, now: Optional[float] = None) -> str:
     """Строка навигации с временем последнего обновления справа."""
 
     navigation = navigation_line(active)
+    content_width = TOTAL_WIDTH - 1
     if active == Screen.UPDATE:
-        return navigation[:TOTAL_WIDTH].ljust(TOTAL_WIDTH)
+        return navigation[:content_width].ljust(content_width) + " "
 
     last_update = f"ПОСЛЕДНЕЕ ОБНОВЛЕНИЕ В {format_last_update_time(screen_last_update_at(active, now))}"
-    spacing = max(1, TOTAL_WIDTH - len(navigation) - len(last_update))
-    return (navigation + " " * spacing + last_update)[:TOTAL_WIDTH]
+    spacing = max(1, content_width - len(navigation) - len(last_update))
+    return (navigation + " " * spacing + last_update)[:content_width] + " "
 
 
 def format_label(service: str) -> str:
