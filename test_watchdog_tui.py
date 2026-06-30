@@ -351,12 +351,13 @@ B: EV=120013
         self.assertIn("ПОСЛЕДНЕЕ ОБНОВЛЕНИЕ В", line)
         self.assertIn(expected_time, line)
 
-    def test_update_footer_has_no_last_update_text(self):
+    def test_update_footer_is_blank(self):
         line = footer_line(Screen.UPDATE, now=1_800_000_000)
 
         self.assertEqual(len(line), TOTAL_WIDTH)
-        self.assertTrue(line.startswith(" ▷ НЕДЕЛИ  ▷ ДНИ  ▷ ЧАСЫ  ▶ ОБНОВИТЬ"))
-        self.assertTrue(line.endswith(" "))
+        self.assertEqual(line, " " * TOTAL_WIDTH)
+        self.assertNotIn("▶", line)
+        self.assertNotIn("▷", line)
         self.assertNotIn("ПОСЛЕДНЕЕ ОБНОВЛЕНИЕ", line)
 
     def test_default_auto_update_aligns_to_next_history_bucket(self):

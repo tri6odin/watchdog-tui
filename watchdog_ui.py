@@ -82,7 +82,7 @@ def footer_line(active: Screen, now: Optional[float] = None) -> str:
     navigation = navigation_line(active)
     content_width = TOTAL_WIDTH - 1
     if active == Screen.UPDATE:
-        return navigation[:content_width].ljust(content_width) + " "
+        return " " * TOTAL_WIDTH
 
     last_update = f"ПОСЛЕДНЕЕ ОБНОВЛЕНИЕ В {format_last_update_time(screen_last_update_at(active, now))}"
     spacing = max(1, content_width - len(navigation) - len(last_update))
@@ -214,7 +214,6 @@ def draw_update_screen(
         cursor_x += 1
 
     addstr_safe(stdscr, 6, x, bottom, colors["frame"])
-    addstr_safe(stdscr, 10, 0, footer_line(Screen.UPDATE), colors["label"])
     stdscr.refresh()
 
 
