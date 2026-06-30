@@ -51,10 +51,10 @@ STATUS_COLOR = {
 class Screen(str, Enum):
     """Carousel screens."""
 
-    WEEKS = "НЕДЕЛИ"
-    DAYS = "ДНИ"
-    HOURS = "ЧАСЫ"
-    UPDATE = "ОБНОВИТЬ"
+    WEEKS = "WEEKS"
+    DAYS = "DAYS"
+    HOURS = "HOURS"
+    UPDATE = "UPDATE"
 
 
 @dataclass(frozen=True)

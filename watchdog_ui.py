@@ -84,7 +84,7 @@ def footer_line(active: Screen, now: Optional[float] = None) -> str:
     if active == Screen.UPDATE:
         return " " * TOTAL_WIDTH
 
-    last_update = f"ПОСЛЕДНЕЕ ОБНОВЛЕНИЕ В {format_last_update_time(screen_last_update_at(active, now))}"
+    last_update = f"LAST UPDATE: {format_last_update_time(screen_last_update_at(active, now))}"
     spacing = max(1, content_width - len(navigation) - len(last_update))
     return (navigation + " " * spacing + last_update)[:content_width] + " "
 
