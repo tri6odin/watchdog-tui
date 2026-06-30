@@ -132,25 +132,6 @@ class WatchdogDB:
             for service, cells in grouped.items()
         }
 
-    def last_checked_at(self, screen: Screen, now: Optional[float] = None) -> Optional[int]:
-        """Вернуть последнее время проверки внутри видимого диапазона экрана."""
-
-        if screen not in SCREEN_CELL_SECONDS:
-            raise ValueError(f"Экран {screen.value} не является историческим")
-
-        first_cell_start, range_end, _cell_seconds = self._visible_range(screen, now)
-        row = self.conn.execute(
-            """
-            SELECT MAX(checked_at) AS last_checked_at
-            FROM history
-            WHERE bucket_start >= ? AND bucket_start < ?
-            """,
-            (first_cell_start, range_end),
-        ).fetchone()
-        if row is None or row["last_checked_at"] is None:
-            return None
-        return int(row["last_checked_at"])
-
     def _visible_range(self, screen: Screen, now: Optional[float]) -> tuple[int, int, int]:
         """Вернуть начало, конец и размер ячейки видимого диапазона экрана."""
 

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 
@@ -42,6 +43,7 @@ from watchdog_core import (
     CHECK_ORDER,
     DISPLAY_ROWS,
     FOUR_HOURS,
+    ONE_DAY,
     Screen,
     Status,
     TEN_MINUTES,
@@ -52,7 +54,7 @@ from watchdog_core import (
     seconds_until_next_history_bucket,
 )
 from watchdog_db import WatchdogDB
-from watchdog_ui import footer_line
+from watchdog_ui import footer_line, screen_last_update_at
 
 
 def make_test_config() -> WatchdogConfig:
@@ -331,30 +333,25 @@ B: EV=120013
             self.assertEqual(after_new_check["LCL NET"][-1], Status.FAIL)
             db.close()
 
-    def test_last_checked_at_uses_visible_screen_range(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db = WatchdogDB(Path(tmpdir) / "watchdog.sqlite3")
-            visible_bucket = align_timestamp(1_800_000_000, FOUR_HOURS)
-            old_bucket = visible_bucket - 50 * FOUR_HOURS
+    def test_screen_last_update_uses_screen_cell_boundary(self):
+        now = align_timestamp(1_800_000_000, FOUR_HOURS) + TEN_MINUTES
 
-            db.save_results({"LCL NET": Status.OK}, checked_at=old_bucket)
-            db.save_results({"LCL NET": Status.OK}, checked_at=visible_bucket + 60)
-
-            self.assertEqual(
-                db.last_checked_at(Screen.DAYS, now=visible_bucket),
-                visible_bucket + 60,
-            )
-            db.close()
+        self.assertEqual(screen_last_update_at(Screen.DAYS, now), align_timestamp(now, FOUR_HOURS))
+        self.assertNotEqual(screen_last_update_at(Screen.DAYS, now), align_timestamp(now, TEN_MINUTES))
+        self.assertEqual(screen_last_update_at(Screen.WEEKS, now), align_timestamp(now, ONE_DAY))
 
     def test_footer_line_shows_navigation_left_and_last_update_right(self):
-        line = footer_line(Screen.WEEKS, checked_at=1_800_000_000)
+        now = align_timestamp(1_800_000_000, FOUR_HOURS) + TEN_MINUTES
+        expected_time = datetime.fromtimestamp(align_timestamp(now, FOUR_HOURS)).strftime("%H:%M")
+        line = footer_line(Screen.DAYS, now=now)
 
         self.assertEqual(len(line), TOTAL_WIDTH)
-        self.assertTrue(line.startswith("  ▶ НЕДЕЛИ  ▷ ДНИ  ▷ ЧАСЫ  ▷ ОБНОВИТЬ"))
+        self.assertTrue(line.startswith("  ▷ НЕДЕЛИ  ▶ ДНИ  ▷ ЧАСЫ  ▷ ОБНОВИТЬ"))
         self.assertIn("ПОСЛЕДНЕЕ ОБНОВЛЕНИЕ В", line)
+        self.assertIn(expected_time, line)
 
     def test_update_footer_has_no_last_update_text(self):
-        line = footer_line(Screen.UPDATE, checked_at=1_800_000_000)
+        line = footer_line(Screen.UPDATE, now=1_800_000_000)
 
         self.assertEqual(len(line), TOTAL_WIDTH)
         self.assertTrue(line.startswith("  ▷ НЕДЕЛИ  ▷ ДНИ  ▷ ЧАСЫ  ▶ ОБНОВИТЬ"))

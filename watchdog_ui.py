@@ -26,11 +26,13 @@ from watchdog_core import (
     SERVICES,
     START_SCREEN,
     STATUS_SYMBOL,
+    SCREEN_CELL_SECONDS,
     SUBSCRIPT_DIGITS,
     TOTAL_WIDTH,
     TEN_MINUTES,
     Screen,
     Status,
+    align_timestamp,
     run_service_checks,
     seconds_until_next_history_bucket,
 )
@@ -63,20 +65,25 @@ def navigation_line(active: Screen) -> str:
     return "  " + "  ".join(parts)
 
 
-def format_last_update_time(checked_at: Optional[int]) -> str:
-    if checked_at is None:
-        return "--:--"
-    return datetime.fromtimestamp(checked_at).strftime("%H:%M")
+def screen_last_update_at(screen: Screen, now: Optional[float] = None) -> int:
+    """Вернуть момент последнего обновления ячейки выбранного экрана."""
+
+    current_time = time.time() if now is None else now
+    return align_timestamp(current_time, SCREEN_CELL_SECONDS[screen])
 
 
-def footer_line(active: Screen, checked_at: Optional[int] = None) -> str:
+def format_last_update_time(updated_at: int) -> str:
+    return datetime.fromtimestamp(updated_at).strftime("%H:%M")
+
+
+def footer_line(active: Screen, now: Optional[float] = None) -> str:
     """Строка навигации с временем последнего обновления справа."""
 
     navigation = navigation_line(active)
     if active == Screen.UPDATE:
         return navigation[:TOTAL_WIDTH].ljust(TOTAL_WIDTH)
 
-    last_update = f"ПОСЛЕДНЕЕ ОБНОВЛЕНИЕ В {format_last_update_time(checked_at)}"
+    last_update = f"ПОСЛЕДНЕЕ ОБНОВЛЕНИЕ В {format_last_update_time(screen_last_update_at(active, now))}"
     spacing = max(1, TOTAL_WIDTH - len(navigation) - len(last_update))
     return (navigation + " " * spacing + last_update)[:TOTAL_WIDTH]
 
@@ -140,7 +147,6 @@ def draw_history_screen(
 
     stdscr.erase()
     history = db.load_history(screen)
-    last_checked_at = db.last_checked_at(screen)
     scale = scale_for_screen(screen)
     scale_line = " " * (1 + LABEL_WIDTH) + scale + " " * (1 + 1 + LABEL_WIDTH) + scale + " " * 2
     top = "╭" + "─" * HALF_WIDTH + "┼" + "─" * HALF_WIDTH + "╮"
@@ -168,7 +174,7 @@ def draw_history_screen(
             addstr_safe(stdscr, y + 1, 0, separator, colors["frame"])
 
     addstr_safe(stdscr, 9, 0, bottom, colors["frame"])
-    addstr_safe(stdscr, 10, 0, footer_line(screen, last_checked_at), colors["label"])
+    addstr_safe(stdscr, 10, 0, footer_line(screen), colors["label"])
     stdscr.refresh()
 
 
