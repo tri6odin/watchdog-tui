@@ -80,6 +80,8 @@ ssh -T git@github.com
 
 ```bash
 cd "$HOME"
+sudo apt update
+sudo apt install git
 git clone -b linux git@github.com:tri6odin/watchdog-tui.git
 cd watchdog-tui
 ```
