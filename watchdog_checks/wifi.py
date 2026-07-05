@@ -11,23 +11,7 @@ from watchdog_config import WifiConfig
 from .network import ping_host_linux
 
 
-WIFI_DEBUG_LOG_PATH = "/tmp/watchdog-wifi-debug.log"
 DISCONNECT_TIMEOUT_SECONDS = 5.0
-
-
-def wifi_debug_log(message: str) -> None:
-    """Temporary Wi-Fi diagnostics. Remove after Raspberry Pi debugging."""
-
-    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        with open(WIFI_DEBUG_LOG_PATH, "a", encoding="utf-8") as log_file:
-            log_file.write(f"[{timestamp}] {message}\n")
-    except OSError:
-        pass
-
-
-def command_text(command: list[str]) -> str:
-    return " ".join(command)
 
 
 def interface_ipv4_address_linux(interface: str, timeout_seconds: float) -> Optional[str]:
@@ -113,9 +97,7 @@ def active_wifi_ssid_linux(interface: str, timeout_seconds: float) -> Optional[s
         if profile and profile[0] and profile[0] != "--":
             ssid = wifi_ssid_for_profile_linux(profile[0], timeout_seconds)
             if ssid is not None:
-                wifi_debug_log(f"active ssid nmcli: interface={interface} profile={profile[0]} ssid={ssid}")
                 return ssid
-            wifi_debug_log(f"active ssid nmcli: interface={interface} profile={profile[0]} ssid=unknown")
             return profile[0]
 
     hard_timeout = max(0.001, timeout_seconds)
@@ -137,7 +119,6 @@ def active_wifi_ssid_linux(interface: str, timeout_seconds: float) -> Optional[s
     for line in result.stdout.splitlines():
         stripped = line.strip()
         if stripped.startswith("SSID: "):
-            wifi_debug_log(f"active ssid iw: interface={interface} ssid={stripped.removeprefix('SSID: ')}")
             return stripped.removeprefix("SSID: ")
     return None
 
@@ -203,7 +184,6 @@ def nmcli_run(command: list[str], timeout_seconds: float, input_text: Optional[s
     """Run nmcli with a hard subprocess timeout."""
 
     hard_timeout = max(0.001, timeout_seconds)
-    wifi_debug_log(f"run: {command_text(command)} timeout={hard_timeout:.3f}")
     try:
         result = subprocess.run(
             command,
@@ -214,17 +194,8 @@ def nmcli_run(command: list[str], timeout_seconds: float, input_text: Optional[s
             timeout=hard_timeout,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError) as exc:
-        wifi_debug_log(f"run fail: {command_text(command)} error={type(exc).__name__}")
+    except (OSError, subprocess.SubprocessError):
         return False
-    wifi_debug_log(f"run done: {command_text(command)} rc={result.returncode}")
-    if result.returncode != 0:
-        stdout = result.stdout.strip()
-        stderr = result.stderr.strip()
-        if stdout:
-            wifi_debug_log(f"stdout: {stdout[:300]}")
-        if stderr:
-            wifi_debug_log(f"stderr: {stderr[:300]}")
     return result.returncode == 0
 
 
@@ -303,21 +274,17 @@ def wait_for_wifi_ssid_visible_linux(
     hard_timeout = max(0.001, timeout_seconds)
     deadline = time.monotonic() + hard_timeout
     rescan_timeout = min(hard_timeout, 5.0)
-    rescan_ok = nmcli_run(
+    nmcli_run(
         ["nmcli", "--wait", nmcli_wait_arg(rescan_timeout), "device", "wifi", "rescan", "ifname", interface],
         rescan_timeout,
     )
-    wifi_debug_log(f"scan: ssid={ssid} interface={interface} rescan_ok={rescan_ok}")
 
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            visible = wifi_ssid_visible_linux(ssid, interface, 1.0)
-            wifi_debug_log(f"scan timeout: ssid={ssid} interface={interface} visible={visible}")
-            return visible
+            return wifi_ssid_visible_linux(ssid, interface, 1.0)
 
         if wifi_ssid_visible_linux(ssid, interface, min(remaining, 1.0)):
-            wifi_debug_log(f"scan visible: ssid={ssid} interface={interface}")
             return True
 
         time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
@@ -336,12 +303,10 @@ def wait_for_wifi_device_available_linux(
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            wifi_debug_log(f"device available timeout: interface={interface} last_state={last_state}")
             return False
 
         last_state = wifi_device_state_linux(interface, min(remaining, 1.0))
         if last_state is not None and last_state not in ("unavailable", "unmanaged"):
-            wifi_debug_log(f"device available: interface={interface} state={last_state}")
             return True
 
         time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
@@ -376,24 +341,19 @@ def connect_wifi_linux(
     wait_arg = nmcli_wait_arg(timeout_seconds)
     profile = wifi_profile_for_ssid_linux(ssid, min(timeout_seconds, 5.0))
     if profile is not None:
-        wifi_debug_log(f"connect: ssid={ssid} profile={profile} interface={interface}")
         connected = nmcli_run(
             ["nmcli", "--wait", wait_arg, "connection", "up", "id", profile, "ifname", interface],
             timeout_seconds,
         )
         if connected:
             return True
-        wifi_debug_log(f"connect profile failed: ssid={ssid} profile={profile}")
 
     if not password:
-        wifi_debug_log(f"connect fail: ssid={ssid} no password and no working profile")
         return False
 
     if not wait_for_wifi_ssid_visible_linux(ssid, interface, min(timeout_seconds, 10.0)):
-        wifi_debug_log(f"connect fail: ssid={ssid} not visible after scan")
         return False
 
-    wifi_debug_log(f"connect fallback: ssid={ssid} interface={interface}")
     return nmcli_run(
         [
             "nmcli",
@@ -415,16 +375,12 @@ def connect_wifi_linux(
 def disconnect_wifi_linux(interface: str, timeout_seconds: float = DISCONNECT_TIMEOUT_SECONDS) -> bool:
     """Disconnect Wi-Fi and wait until stale IPv4 disappears."""
 
-    disconnected = nmcli_run(
+    nmcli_run(
         ["nmcli", "--wait", nmcli_wait_arg(timeout_seconds), "device", "disconnect", interface],
         timeout_seconds,
     )
     no_ipv4 = wait_for_interface_no_ipv4_linux(interface, timeout_seconds)
     active_ssid = active_wifi_ssid_linux(interface, 1.0)
-    wifi_debug_log(
-        f"disconnect state: interface={interface} command_ok={disconnected} "
-        f"no_ipv4={no_ipv4} active_ssid={active_ssid}"
-    )
     return no_ipv4 and active_ssid is None
 
 
@@ -436,15 +392,12 @@ def check_connected_wifi_network_linux(
     connect_timeout_seconds: float,
     ping_timeout_seconds: float,
     disconnect_after_check: bool,
-    service_label: str = "WIFI",
 ) -> bool:
     """Check one Wi-Fi network assuming radio is already enabled."""
 
-    wifi_debug_log(f"{service_label}: start ssid={ssid} gateway={gateway} interface={wifi_interface}")
     try:
         connected = connect_wifi_linux(ssid, password, wifi_interface, connect_timeout_seconds)
         if not connected:
-            wifi_debug_log(f"{service_label}: fail connect ssid={ssid}")
             return False
 
         connected_to_expected = wait_for_connected_ssid_linux(
@@ -452,21 +405,13 @@ def check_connected_wifi_network_linux(
             ssid,
             min(connect_timeout_seconds, 5.0),
         )
-        active_ssid = active_wifi_ssid_linux(wifi_interface, 1.0)
-        wifi_debug_log(
-            f"{service_label}: ssid check expected={ssid} active={active_ssid} ok={connected_to_expected}"
-        )
         if not connected_to_expected:
             return False
 
         source_address = wait_for_interface_ipv4_linux(wifi_interface, min(connect_timeout_seconds, 5.0))
         if source_address is None:
-            wifi_debug_log(f"{service_label}: fail ip ssid={ssid}")
             return False
-        wifi_debug_log(f"{service_label}: ip={source_address}")
-        ping_ok = ping_host_linux(gateway, ping_timeout_seconds, interface=source_address, count=1)
-        wifi_debug_log(f"{service_label}: ping gateway={gateway} source={source_address} ok={ping_ok}")
-        return ping_ok
+        return ping_host_linux(gateway, ping_timeout_seconds, interface=source_address, count=1)
     finally:
         if disconnect_after_check:
             disconnect_wifi_linux(wifi_interface)
@@ -492,12 +437,10 @@ def check_wifi_network_linux(
 
     wait_arg = nmcli_wait_arg(connect_timeout_seconds)
     radio_on = nmcli_run(["nmcli", "--wait", wait_arg, "radio", "wifi", "on"], connect_timeout_seconds)
-    wifi_debug_log(f"WIFI: radio on ok={radio_on}")
     try:
         if not radio_on:
             return False
         device_ready = wait_for_wifi_device_available_linux(wifi_interface, min(connect_timeout_seconds, 10.0))
-        wifi_debug_log(f"WIFI: device ready ok={device_ready}")
         if not device_ready:
             return False
         return check_connected_wifi_network_linux(
@@ -511,14 +454,12 @@ def check_wifi_network_linux(
         )
     finally:
         if disconnect_after_check:
-            radio_off = nmcli_run(["nmcli", "--wait", "5", "radio", "wifi", "off"], 5.0)
-            wifi_debug_log(f"WIFI: radio off ok={radio_off}")
+            nmcli_run(["nmcli", "--wait", "5", "radio", "wifi", "off"], 5.0)
 
 
 def check_wifi_pair(wifi_config: WifiConfig, iot_wifi_config: WifiConfig) -> Mapping[str, bool]:
     """Check main and IoT Wi-Fi networks during one Wi-Fi radio wakeup."""
 
-    wifi_debug_log("PAIR: start")
     interface_timeout = min(
         wifi_config.connect_timeout_seconds,
         iot_wifi_config.connect_timeout_seconds,
@@ -526,20 +467,16 @@ def check_wifi_pair(wifi_config: WifiConfig, iot_wifi_config: WifiConfig) -> Map
     )
     wifi_interface = detect_wifi_interface_linux(wifi_config.interface, interface_timeout)
     if wifi_interface is None:
-        wifi_debug_log("PAIR: fail detect interface")
         return {"WIFI": False, "IOT WIFI": False}
-    wifi_debug_log(f"PAIR: interface={wifi_interface}")
 
     radio_timeout = max(wifi_config.connect_timeout_seconds, iot_wifi_config.connect_timeout_seconds)
     wait_arg = nmcli_wait_arg(radio_timeout)
     radio_on = nmcli_run(["nmcli", "--wait", wait_arg, "radio", "wifi", "on"], radio_timeout)
-    wifi_debug_log(f"PAIR: radio on ok={radio_on}")
 
     try:
         if not radio_on:
             return {"WIFI": False, "IOT WIFI": False}
         device_ready = wait_for_wifi_device_available_linux(wifi_interface, min(radio_timeout, 10.0))
-        wifi_debug_log(f"PAIR: device ready ok={device_ready}")
         if not device_ready:
             return {"WIFI": False, "IOT WIFI": False}
         wifi_ok = check_connected_wifi_network_linux(
@@ -550,7 +487,6 @@ def check_wifi_pair(wifi_config: WifiConfig, iot_wifi_config: WifiConfig) -> Map
             wifi_config.connect_timeout_seconds,
             wifi_config.ping_timeout_seconds,
             wifi_config.disconnect_after_check,
-            "WIFI",
         )
         iot_wifi_ok = check_connected_wifi_network_linux(
             iot_wifi_config.ssid,
@@ -560,11 +496,8 @@ def check_wifi_pair(wifi_config: WifiConfig, iot_wifi_config: WifiConfig) -> Map
             iot_wifi_config.connect_timeout_seconds,
             iot_wifi_config.ping_timeout_seconds,
             iot_wifi_config.disconnect_after_check,
-            "IOT WIFI",
         )
-        wifi_debug_log(f"PAIR: done WIFI={wifi_ok} IOT_WIFI={iot_wifi_ok}")
         return {"WIFI": wifi_ok, "IOT WIFI": iot_wifi_ok}
     finally:
         if wifi_config.disconnect_after_check or iot_wifi_config.disconnect_after_check:
-            radio_off = nmcli_run(["nmcli", "--wait", "5", "radio", "wifi", "off"], 5.0)
-            wifi_debug_log(f"PAIR: radio off ok={radio_off}")
+            nmcli_run(["nmcli", "--wait", "5", "radio", "wifi", "off"], 5.0)
