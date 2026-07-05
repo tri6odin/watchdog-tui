@@ -278,6 +278,51 @@ def wifi_device_state_linux(interface: str, timeout_seconds: float) -> Optional[
     return None
 
 
+def wifi_ssid_visible_linux(ssid: str, interface: str, timeout_seconds: float) -> bool:
+    """Return whether NetworkManager scan cache contains the requested SSID."""
+
+    output = nmcli_output(
+        ["nmcli", "-g", "SSID", "device", "wifi", "list", "ifname", interface],
+        timeout_seconds,
+    )
+    if output is None:
+        return False
+
+    expected = ssid.strip()
+    return any(line.strip() == expected for line in output.splitlines())
+
+
+def wait_for_wifi_ssid_visible_linux(
+    ssid: str,
+    interface: str,
+    timeout_seconds: float,
+    poll_interval_seconds: float = 0.5,
+) -> bool:
+    """Rescan and wait until NetworkManager can see an SSID before connecting."""
+
+    hard_timeout = max(0.001, timeout_seconds)
+    deadline = time.monotonic() + hard_timeout
+    rescan_timeout = min(hard_timeout, 5.0)
+    rescan_ok = nmcli_run(
+        ["nmcli", "--wait", nmcli_wait_arg(rescan_timeout), "device", "wifi", "rescan", "ifname", interface],
+        rescan_timeout,
+    )
+    wifi_debug_log(f"scan: ssid={ssid} interface={interface} rescan_ok={rescan_ok}")
+
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            visible = wifi_ssid_visible_linux(ssid, interface, 1.0)
+            wifi_debug_log(f"scan timeout: ssid={ssid} interface={interface} visible={visible}")
+            return visible
+
+        if wifi_ssid_visible_linux(ssid, interface, min(remaining, 1.0)):
+            wifi_debug_log(f"scan visible: ssid={ssid} interface={interface}")
+            return True
+
+        time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
+
+
 def wait_for_wifi_device_available_linux(
     interface: str,
     timeout_seconds: float,
@@ -344,11 +389,10 @@ def connect_wifi_linux(
         wifi_debug_log(f"connect fail: ssid={ssid} no password and no working profile")
         return False
 
-    rescan_timeout = min(timeout_seconds, 10.0)
-    nmcli_run(
-        ["nmcli", "--wait", nmcli_wait_arg(rescan_timeout), "device", "wifi", "rescan", "ifname", interface],
-        rescan_timeout,
-    )
+    if not wait_for_wifi_ssid_visible_linux(ssid, interface, min(timeout_seconds, 10.0)):
+        wifi_debug_log(f"connect fail: ssid={ssid} not visible after scan")
+        return False
+
     wifi_debug_log(f"connect fallback: ssid={ssid} interface={interface}")
     return nmcli_run(
         [
