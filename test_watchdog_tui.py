@@ -13,6 +13,7 @@ from watchdog_config import (
     TlsConfig,
     WifiConfig,
     WatchdogConfig,
+    ZigbeeConfig,
     load_watchdog_config,
 )
 from touch_swipe import (
@@ -41,6 +42,7 @@ from watchdog_checks.wifi import (
     wifi_ssid_visible_linux,
     wifi_profile_for_ssid_linux,
 )
+from watchdog_checks.zigbee import check_zigbee, zha_device_is_offline
 from watchdog_core import (
     CHECK_ORDER,
     DISPLAY_ROWS,
@@ -71,6 +73,10 @@ def make_test_config() -> WatchdogConfig:
             api_path="/api/config",
             timeout_seconds=2.0,
             token="ha-token",
+        ),
+        zigbee=ZigbeeConfig(
+            max_offline_devices=0,
+            timeout_seconds=5.0,
         ),
         nas=NasConfig(
             address="192.168.50.3",
@@ -139,6 +145,10 @@ api_path = /api/config
 timeout_seconds = 2.0
 token = test-token
 
+[zigbee]
+max_offline_devices = 3
+timeout_seconds = 5.0
+
 [nas]
 address = 192.168.50.3
 port = 445
@@ -187,6 +197,8 @@ swipe_horizontal_ratio = 1.1
         self.assertEqual(config.haos.address, "192.168.50.4")
         self.assertEqual(config.haos.port, 8123)
         self.assertEqual(config.haos.token, "test-token")
+        self.assertEqual(config.zigbee.max_offline_devices, 3)
+        self.assertEqual(config.zigbee.timeout_seconds, 5.0)
         self.assertEqual(config.nas.smb_share, "BACKUP")
         self.assertEqual(config.wifi.ssid, "example-wifi")
         self.assertEqual(config.wifi.password, "test-wifi-pass")
@@ -478,6 +490,32 @@ B: EV=120013
                 )
             )
 
+    def test_zha_device_offline_detection_uses_available_flag(self):
+        self.assertTrue(zha_device_is_offline({"name": "Door", "available": False}))
+        self.assertTrue(zha_device_is_offline({"name": "Plug", "is_available": False}))
+        self.assertTrue(zha_device_is_offline({"name": "Sensor", "device": {"available": False}}))
+        self.assertFalse(zha_device_is_offline({"name": "Lamp", "available": True}))
+        self.assertFalse(zha_device_is_offline({"name": "Unknown shape"}))
+
+    def test_zigbee_check_fails_when_too_many_devices_are_offline(self):
+        devices = [
+            {"name": "Coordinator", "available": True},
+            {"name": "Door", "available": False},
+            {"name": "Motion", "available": False},
+        ]
+
+        with patch("watchdog_checks.zigbee.fetch_zha_devices", return_value=devices):
+            self.assertFalse(check_zigbee("192.168.50.4", 8123, "ha-token", 1, 5.0, "watchdog-test/1.0"))
+            self.assertTrue(check_zigbee("192.168.50.4", 8123, "ha-token", 2, 5.0, "watchdog-test/1.0"))
+
+    def test_zigbee_check_rejects_missing_token_or_failed_fetch(self):
+        with patch("watchdog_checks.zigbee.fetch_zha_devices") as fetch:
+            self.assertFalse(check_zigbee("192.168.50.4", 8123, "", 0, 5.0, "watchdog-test/1.0"))
+            fetch.assert_not_called()
+
+        with patch("watchdog_checks.zigbee.fetch_zha_devices", return_value=None):
+            self.assertFalse(check_zigbee("192.168.50.4", 8123, "ha-token", 0, 5.0, "watchdog-test/1.0"))
+
     def test_real_checkers_use_configured_addresses_and_timeouts(self):
         config = make_test_config()
         checkers = build_checkers(config)
@@ -510,6 +548,17 @@ B: EV=120013
                 config.haos.token,
                 config.haos.api_path,
                 config.haos.timeout_seconds,
+                config.global_config.http_user_agent,
+            )
+
+        with patch("watchdog_checks.check_zigbee", return_value=True) as zigbee:
+            self.assertTrue(checkers["ZIGBEE"]())
+            zigbee.assert_called_once_with(
+                config.haos.address,
+                config.haos.port,
+                config.haos.token,
+                config.zigbee.max_offline_devices,
+                config.zigbee.timeout_seconds,
                 config.global_config.http_user_agent,
             )
 

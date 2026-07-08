@@ -65,5 +65,12 @@ def build_checkers(config: WatchdogConfig) -> Mapping[str, Checker]:
             config.haos.timeout_seconds,
             config.global_config.http_user_agent,
         ),
-        "ZIGBEE": check_zigbee,
+        "ZIGBEE": lambda: check_zigbee(
+            config.haos.address,
+            config.haos.port,
+            config.haos.token,
+            config.zigbee.max_offline_devices,
+            config.zigbee.timeout_seconds,
+            config.global_config.http_user_agent,
+        ),
     }

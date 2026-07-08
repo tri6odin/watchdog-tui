@@ -109,8 +109,8 @@ Main Wi-Fi SSID/password
 IoT Wi-Fi SSID/password
 ```
 
-Порты, таймауты, Home Assistant API path, Wi-Fi interface и прочие технические
-поля заполняются дефолтами. Расширенный режим:
+Порты, таймауты, Home Assistant API path, Zigbee offline-порог, Wi-Fi interface
+и прочие технические поля заполняются дефолтами. Расширенный режим:
 
 ```bash
 sudo env ADVANCED_WATCHDOG_CONF=1 scripts/configure_raspberry_pi_host.sh
@@ -253,6 +253,10 @@ port = 8123
 api_path = /api/config
 timeout_seconds = 2.0
 token = paste_home_assistant_long_lived_token_here
+
+[zigbee]
+max_offline_devices = 0
+timeout_seconds = 5.0
 
 [nas]
 address = 192.168.50.3
@@ -442,7 +446,10 @@ curl --config - --max-time <timeout> --connect-timeout <timeout> http://<address
 
 Bearer token передается в `curl` через stdin config.
 
-`ZIGBEE`: пока заглушка, всегда `ok`.
+`ZIGBEE`: WebSocket API Home Assistant, команда `zha/devices`. Проверка
+считает устройства с `available = false` и сравнивает количество с
+`[zigbee] max_offline_devices`. При `max_offline_devices = 0` любое устройство
+не в сети делает `ZIGBEE` красным.
 
 Если `LCL NET` красный, все остальные проверки в этом прогоне становятся
 `unknown`: без локальной сети остальные результаты были бы шумом.

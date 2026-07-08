@@ -47,6 +47,12 @@ class HaosConfig:
 
 
 @dataclass(frozen=True)
+class ZigbeeConfig:
+    max_offline_devices: int
+    timeout_seconds: float
+
+
+@dataclass(frozen=True)
 class NasConfig:
     address: str
     port: int
@@ -84,6 +90,7 @@ class WatchdogConfig:
     int_net: TlsConfig
     vpn: TlsConfig
     haos: HaosConfig
+    zigbee: ZigbeeConfig
     nas: NasConfig
     wifi: WifiConfig
     iot_wifi: WifiConfig
@@ -131,6 +138,10 @@ def load_watchdog_config(path: Path = DEFAULT_CONFIG_PATH) -> WatchdogConfig:
             api_path=_get_str(parser, "haos", "api_path"),
             timeout_seconds=_get_float(parser, "haos", "timeout_seconds"),
             token=_get_str(parser, "haos", "token"),
+        ),
+        zigbee=ZigbeeConfig(
+            max_offline_devices=_get_non_negative_int_default(parser, "zigbee", "max_offline_devices", 0),
+            timeout_seconds=_get_float_default(parser, "zigbee", "timeout_seconds", 5.0),
         ),
         nas=NasConfig(
             address=_get_str(parser, "nas", "address"),
@@ -265,6 +276,24 @@ def _get_int_default(
         raise ConfigError(f"Параметр [{section}] {option} должен быть целым числом") from exc
     if value <= 0:
         raise ConfigError(f"Параметр [{section}] {option} должен быть больше нуля")
+    return value
+
+
+def _get_non_negative_int_default(
+    parser: configparser.ConfigParser,
+    section: str,
+    option: str,
+    default: int,
+) -> int:
+    if not parser.has_section(section) or not parser.has_option(section, option):
+        return default
+    raw_value = _get_str_default(parser, section, option, str(default))
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ConfigError(f"Параметр [{section}] {option} должен быть целым числом") from exc
+    if value < 0:
+        raise ConfigError(f"Параметр [{section}] {option} должен быть нулем или больше")
     return value
 
 

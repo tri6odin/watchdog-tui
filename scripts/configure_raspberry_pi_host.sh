@@ -263,6 +263,8 @@ write_watchdog_config() {
     haos_port=8123
     haos_api_path=/api/config
     haos_timeout=2.0
+    zigbee_max_offline=0
+    zigbee_timeout=5.0
     nas_port=445
     nas_tcp_timeout=1.0
     nas_smb_timeout=5.0
@@ -294,6 +296,8 @@ write_watchdog_config() {
         haos_port=$(ask "Home Assistant port" "$haos_port")
         haos_api_path=$(ask "Home Assistant API path" "$haos_api_path")
         haos_timeout=$(ask "Home Assistant timeout seconds" "$haos_timeout")
+        zigbee_max_offline=$(ask "Zigbee max offline devices" "$zigbee_max_offline")
+        zigbee_timeout=$(ask "Zigbee timeout seconds" "$zigbee_timeout")
         nas_port=$(ask "NAS SMB port" "$nas_port")
         nas_tcp_timeout=$(ask "NAS TCP timeout seconds" "$nas_tcp_timeout")
         nas_smb_timeout=$(ask "NAS SMB timeout seconds" "$nas_smb_timeout")
@@ -335,6 +339,10 @@ port = $haos_port
 api_path = $haos_api_path
 timeout_seconds = $haos_timeout
 token = $haos_token
+
+[zigbee]
+max_offline_devices = $zigbee_max_offline
+timeout_seconds = $zigbee_timeout
 
 [nas]
 address = $nas_address
