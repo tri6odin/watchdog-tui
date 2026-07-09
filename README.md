@@ -423,7 +423,9 @@ nmcli --wait 5 radio wifi off
 
 Важно: ping идет через IPv4-адрес `wlan0`, а не просто через имя интерфейса.
 Это защищает от ситуации, когда Linux отправляет пакет через `wlan0`, но
-выбирает source address с другого интерфейса.
+выбирает source address с другого интерфейса. Перед ping дополнительно
+проверяется маршрут: `ip route get <gateway> from <wifi-ip>` должен указывать
+на Wi-Fi интерфейс.
 
 Wi-Fi пароль передается в `nmcli --ask` через stdin только при fallback на
 `device wifi connect`. Если найден saved profile, пароль берется из

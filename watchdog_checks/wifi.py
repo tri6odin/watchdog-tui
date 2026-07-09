@@ -12,6 +12,7 @@ from .network import ping_host_linux
 
 
 DISCONNECT_TIMEOUT_SECONDS = 5.0
+POST_CONNECT_TIMEOUT_SECONDS = 10.0
 
 
 def interface_ipv4_address_linux(interface: str, timeout_seconds: float) -> Optional[str]:
@@ -61,6 +62,67 @@ def wait_for_interface_ipv4_linux(
         address = interface_ipv4_address_linux(interface, min(remaining, 1.0))
         if address is not None:
             return address
+
+        time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
+
+
+def interface_route_uses_linux(
+    host: str,
+    source_address: str,
+    interface: str,
+    timeout_seconds: float,
+) -> bool:
+    """Return whether Linux would route host from source address through interface."""
+
+    hard_timeout = max(0.001, timeout_seconds)
+    try:
+        result = subprocess.run(
+            ["ip", "route", "get", host, "from", source_address],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=hard_timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+    if result.returncode != 0:
+        return False
+
+    parts = result.stdout.split()
+    if "dev" not in parts:
+        return False
+
+    dev_index = parts.index("dev")
+    if dev_index + 1 >= len(parts) or parts[dev_index + 1] != interface:
+        return False
+
+    if "src" not in parts:
+        return True
+
+    src_index = parts.index("src")
+    return src_index + 1 < len(parts) and parts[src_index + 1] == source_address
+
+
+def wait_for_interface_route_linux(
+    host: str,
+    source_address: str,
+    interface: str,
+    timeout_seconds: float,
+    poll_interval_seconds: float = 0.2,
+) -> bool:
+    """Wait until route to host is bound to the Wi-Fi source address/interface."""
+
+    hard_timeout = max(0.001, timeout_seconds)
+    deadline = time.monotonic() + hard_timeout
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return interface_route_uses_linux(host, source_address, interface, 1.0)
+
+        if interface_route_uses_linux(host, source_address, interface, min(remaining, 1.0)):
+            return True
 
         time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
 
@@ -400,16 +462,19 @@ def check_connected_wifi_network_linux(
         if not connected:
             return False
 
+        post_connect_timeout = min(connect_timeout_seconds, POST_CONNECT_TIMEOUT_SECONDS)
         connected_to_expected = wait_for_connected_ssid_linux(
             wifi_interface,
             ssid,
-            min(connect_timeout_seconds, 5.0),
+            post_connect_timeout,
         )
         if not connected_to_expected:
             return False
 
-        source_address = wait_for_interface_ipv4_linux(wifi_interface, min(connect_timeout_seconds, 5.0))
+        source_address = wait_for_interface_ipv4_linux(wifi_interface, post_connect_timeout)
         if source_address is None:
+            return False
+        if not wait_for_interface_route_linux(gateway, source_address, wifi_interface, post_connect_timeout):
             return False
         return ping_host_linux(gateway, ping_timeout_seconds, interface=source_address, count=1)
     finally:
