@@ -636,7 +636,7 @@ homes                                           Disk
             self.assertTrue(interface_route_uses_linux("192.168.50.1", "192.168.50.218", "wlan0", 1.0))
 
             args = run.call_args.args[0]
-            self.assertEqual(args, ["ip", "route", "get", "192.168.50.1", "from", "192.168.50.218"])
+            self.assertEqual(args, ["ip", "route", "get", "192.168.50.1", "from", "192.168.50.218", "oif", "wlan0"])
             self.assertEqual(run.call_args.kwargs["timeout"], 1.0)
 
         with patch("watchdog_checks.wifi.subprocess.run") as run:
@@ -785,7 +785,7 @@ homes                                           Disk
         wait_ssid.assert_called_once_with("wlan0", "example-wifi", 10.0)
         wait_ip.assert_called_once_with("wlan0", 10.0)
         wait_route.assert_called_once_with("192.168.50.1", "192.168.50.218", "wlan0", 10.0)
-        ping.assert_called_once_with("192.168.50.1", 1.0, interface="192.168.50.218", count=1)
+        ping.assert_called_once_with("192.168.50.1", 1.0, interface="wlan0", count=1)
         wait_no_ip.assert_called_once_with("wlan0", 5.0)
         self.assertEqual(nmcli.call_args_list[-2].args[0], ["nmcli", "--wait", "5", "device", "disconnect", "wlan0"])
         self.assertEqual(nmcli.call_args_list[-1].args[0], ["nmcli", "--wait", "5", "radio", "wifi", "off"])
