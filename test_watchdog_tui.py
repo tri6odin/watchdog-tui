@@ -391,7 +391,7 @@ B: EV=120013
             run.assert_called_once()
             args = run.call_args.args[0]
             self.assertEqual(args, ["ping", "-c", "1", "-W", "1", "192.168.50.1"])
-            self.assertEqual(run.call_args.kwargs["timeout"], 1.0)
+            self.assertEqual(run.call_args.kwargs["timeout"], 3.0)
 
     def test_ping_host_can_pin_wifi_interface(self):
         with patch("watchdog_checks.network.subprocess.run") as run:
@@ -410,7 +410,17 @@ B: EV=120013
 
             args = run.call_args.args[0]
             self.assertEqual(args, ["ping", "-c", "3", "-W", "1", "-I", "192.168.50.218", "192.168.50.1"])
-            self.assertEqual(run.call_args.kwargs["timeout"], 5.0)
+            self.assertEqual(run.call_args.kwargs["timeout"], 7.0)
+
+    def test_ping_host_rounds_fractional_ping_timeout_up(self):
+        with patch("watchdog_checks.network.subprocess.run") as run:
+            run.return_value.returncode = 0
+
+            self.assertTrue(ping_host_linux("192.168.50.1", 1.2))
+
+            args = run.call_args.args[0]
+            self.assertEqual(args, ["ping", "-c", "1", "-W", "2", "192.168.50.1"])
+            self.assertEqual(run.call_args.kwargs["timeout"], 4.0)
 
     def test_http_endpoint_uses_curl_with_hard_timeout(self):
         with patch("watchdog_checks.haos.subprocess.run") as run:

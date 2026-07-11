@@ -6,7 +6,28 @@ import socket
 import ssl
 import subprocess
 import time
+from math import ceil
 from typing import Optional
+
+
+PING_PROCESS_GUARD_SECONDS = 2.0
+PING_PACKET_INTERVAL_SECONDS = 1.0
+
+
+def _ping_wait_seconds(timeout_seconds: float) -> int:
+    """Return the integer timeout expected by iputils ping -W."""
+
+    return max(1, ceil(max(0.001, timeout_seconds)))
+
+
+def _ping_process_timeout_seconds(packet_timeout_seconds: int, packet_count: int) -> float:
+    """Return a subprocess kill guard, not the network decision timeout."""
+
+    return (
+        packet_timeout_seconds * packet_count
+        + PING_PACKET_INTERVAL_SECONDS * max(0, packet_count - 1)
+        + PING_PROCESS_GUARD_SECONDS
+    )
 
 
 def ping_host_linux(
@@ -19,8 +40,8 @@ def ping_host_linux(
 
     hard_timeout = max(0.001, timeout_seconds)
     packet_count = max(1, int(count))
-    ping_timeout_seconds = max(1, int(hard_timeout))
-    process_timeout = hard_timeout * packet_count + max(0, packet_count - 1)
+    ping_timeout_seconds = _ping_wait_seconds(hard_timeout)
+    process_timeout = _ping_process_timeout_seconds(ping_timeout_seconds, packet_count)
     try:
         command = ["ping", "-c", str(packet_count), "-W", str(ping_timeout_seconds)]
         if interface is not None:
