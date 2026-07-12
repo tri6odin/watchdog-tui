@@ -42,6 +42,7 @@ def build_checkers(config: WatchdogConfig) -> Mapping[str, Checker]:
             config.iot_wifi.gateway,
             config.iot_wifi.interface,
             config.iot_wifi.connect_timeout_seconds,
+            config.iot_wifi.ready_timeout_seconds,
             config.iot_wifi.ping_timeout_seconds,
             config.iot_wifi.disconnect_after_check,
         ),

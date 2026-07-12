@@ -12,7 +12,6 @@ from .network import ping_host_linux
 
 
 DISCONNECT_TIMEOUT_SECONDS = 5.0
-POST_CONNECT_TIMEOUT_SECONDS = 10.0
 
 
 def interface_ipv4_address_linux(interface: str, timeout_seconds: float) -> Optional[str]:
@@ -452,6 +451,7 @@ def check_connected_wifi_network_linux(
     gateway: str,
     wifi_interface: str,
     connect_timeout_seconds: float,
+    ready_timeout_seconds: float,
     ping_timeout_seconds: float,
     disconnect_after_check: bool,
 ) -> bool:
@@ -462,7 +462,7 @@ def check_connected_wifi_network_linux(
         if not connected:
             return False
 
-        post_connect_timeout = min(connect_timeout_seconds, POST_CONNECT_TIMEOUT_SECONDS)
+        post_connect_timeout = ready_timeout_seconds
         connected_to_expected = wait_for_connected_ssid_linux(
             wifi_interface,
             ssid,
@@ -488,6 +488,7 @@ def check_wifi_network_linux(
     gateway: str,
     interface: str,
     connect_timeout_seconds: float,
+    ready_timeout_seconds: float,
     ping_timeout_seconds: float,
     disconnect_after_check: bool,
 ) -> bool:
@@ -505,7 +506,7 @@ def check_wifi_network_linux(
     try:
         if not radio_on:
             return False
-        device_ready = wait_for_wifi_device_available_linux(wifi_interface, min(connect_timeout_seconds, 10.0))
+        device_ready = wait_for_wifi_device_available_linux(wifi_interface, min(ready_timeout_seconds, 10.0))
         if not device_ready:
             return False
         return check_connected_wifi_network_linux(
@@ -514,6 +515,7 @@ def check_wifi_network_linux(
             gateway,
             wifi_interface,
             connect_timeout_seconds,
+            ready_timeout_seconds,
             ping_timeout_seconds,
             disconnect_after_check,
         )
@@ -535,13 +537,14 @@ def check_wifi_pair(wifi_config: WifiConfig, iot_wifi_config: WifiConfig) -> Map
         return {"WIFI": False, "IOT WIFI": False}
 
     radio_timeout = max(wifi_config.connect_timeout_seconds, iot_wifi_config.connect_timeout_seconds)
+    ready_timeout = max(wifi_config.ready_timeout_seconds, iot_wifi_config.ready_timeout_seconds)
     wait_arg = nmcli_wait_arg(radio_timeout)
     radio_on = nmcli_run(["nmcli", "--wait", wait_arg, "radio", "wifi", "on"], radio_timeout)
 
     try:
         if not radio_on:
             return {"WIFI": False, "IOT WIFI": False}
-        device_ready = wait_for_wifi_device_available_linux(wifi_interface, min(radio_timeout, 10.0))
+        device_ready = wait_for_wifi_device_available_linux(wifi_interface, min(ready_timeout, 10.0))
         if not device_ready:
             return {"WIFI": False, "IOT WIFI": False}
         wifi_ok = check_connected_wifi_network_linux(
@@ -550,6 +553,7 @@ def check_wifi_pair(wifi_config: WifiConfig, iot_wifi_config: WifiConfig) -> Map
             wifi_config.gateway,
             wifi_interface,
             wifi_config.connect_timeout_seconds,
+            wifi_config.ready_timeout_seconds,
             wifi_config.ping_timeout_seconds,
             wifi_config.disconnect_after_check,
         )
@@ -559,6 +563,7 @@ def check_wifi_pair(wifi_config: WifiConfig, iot_wifi_config: WifiConfig) -> Map
             iot_wifi_config.gateway,
             wifi_interface,
             iot_wifi_config.connect_timeout_seconds,
+            iot_wifi_config.ready_timeout_seconds,
             iot_wifi_config.ping_timeout_seconds,
             iot_wifi_config.disconnect_after_check,
         )

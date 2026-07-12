@@ -273,7 +273,8 @@ password = paste_wifi_password_here
 gateway = 192.168.50.1
 interface = auto
 connect_timeout_seconds = 25.0
-ping_timeout_seconds = 1.0
+ready_timeout_seconds = 10.0
+ping_timeout_seconds = 2.0
 disconnect_after_check = true
 
 [iot_wifi]
@@ -282,7 +283,8 @@ password = paste_iot_wifi_password_here
 gateway = 192.168.50.1
 interface = auto
 connect_timeout_seconds = 25.0
-ping_timeout_seconds = 1.0
+ready_timeout_seconds = 10.0
+ping_timeout_seconds = 2.0
 disconnect_after_check = true
 
 [touch]
@@ -421,6 +423,11 @@ ping -c 1 -W <timeout> -I <wlan> <gateway>
 nmcli --wait 5 device disconnect <wlan>
 nmcli --wait 5 radio wifi off
 ```
+
+Для Wi-Fi таймауты разделены: `connect_timeout_seconds` ограничивает
+подключение через NetworkManager, `ready_timeout_seconds` ограничивает ожидание
+SSID/IPv4/route после подключения, `ping_timeout_seconds` относится только к
+одному контрольному ICMP до gateway.
 
 Перед ping проверяется маршрут:
 `ip route get <gateway> from <wifi-ip> oif <wlan>` должен указывать на Wi-Fi

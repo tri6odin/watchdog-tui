@@ -95,7 +95,8 @@ def make_test_config() -> WatchdogConfig:
             gateway="192.168.50.1",
             interface="auto",
             connect_timeout_seconds=25.0,
-            ping_timeout_seconds=1.0,
+            ready_timeout_seconds=10.0,
+            ping_timeout_seconds=2.0,
             disconnect_after_check=True,
         ),
         iot_wifi=WifiConfig(
@@ -104,7 +105,8 @@ def make_test_config() -> WatchdogConfig:
             gateway="192.168.50.1",
             interface="auto",
             connect_timeout_seconds=25.0,
-            ping_timeout_seconds=1.0,
+            ready_timeout_seconds=10.0,
+            ping_timeout_seconds=2.0,
             disconnect_after_check=True,
         ),
         touch=TouchConfig(
@@ -166,7 +168,8 @@ password = test-wifi-pass
 gateway = 192.168.50.1
 interface = auto
 connect_timeout_seconds = 25.0
-ping_timeout_seconds = 1.0
+ready_timeout_seconds = 10.0
+ping_timeout_seconds = 2.0
 disconnect_after_check = true
 
 [iot_wifi]
@@ -175,7 +178,8 @@ password = test-wifi-pass
 gateway = 192.168.50.1
 interface = auto
 connect_timeout_seconds = 25.0
-ping_timeout_seconds = 1.0
+ready_timeout_seconds = 10.0
+ping_timeout_seconds = 2.0
 disconnect_after_check = true
 
 [touch]
@@ -205,8 +209,12 @@ swipe_horizontal_ratio = 1.1
         self.assertEqual(config.wifi.ssid, "example-wifi")
         self.assertEqual(config.wifi.password, "test-wifi-pass")
         self.assertEqual(config.wifi.gateway, "192.168.50.1")
+        self.assertEqual(config.wifi.ready_timeout_seconds, 10.0)
+        self.assertEqual(config.wifi.ping_timeout_seconds, 2.0)
         self.assertEqual(config.iot_wifi.ssid, "example-iot")
         self.assertEqual(config.iot_wifi.gateway, "192.168.50.1")
+        self.assertEqual(config.iot_wifi.ready_timeout_seconds, 10.0)
+        self.assertEqual(config.iot_wifi.ping_timeout_seconds, 2.0)
         self.assertTrue(config.touch.enabled)
         self.assertEqual(config.touch.event_device, "auto")
         self.assertEqual(config.touch.swipe_min_dx, 1200)
@@ -779,6 +787,7 @@ homes                                           Disk
                                                         "192.168.50.1",
                                                         "auto",
                                                         25.0,
+                                                        10.0,
                                                         1.0,
                                                         True,
                                                     )
@@ -818,6 +827,7 @@ homes                                           Disk
                                                         "192.168.50.1",
                                                         "auto",
                                                         25.0,
+                                                        10.0,
                                                         1.0,
                                                         True,
                                                     )

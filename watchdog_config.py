@@ -70,6 +70,7 @@ class WifiConfig:
     gateway: str
     interface: str
     connect_timeout_seconds: float
+    ready_timeout_seconds: float
     ping_timeout_seconds: float
     disconnect_after_check: bool
 
@@ -182,7 +183,8 @@ def _load_wifi_config(
             gateway=default_gateway,
             interface="auto",
             connect_timeout_seconds=25.0,
-            ping_timeout_seconds=1.0,
+            ready_timeout_seconds=10.0,
+            ping_timeout_seconds=2.0,
             disconnect_after_check=True,
         )
 
@@ -192,7 +194,8 @@ def _load_wifi_config(
         gateway=_get_str_default(parser, section, "gateway", default_gateway),
         interface=_get_str_default(parser, section, "interface", "auto"),
         connect_timeout_seconds=_get_float_default(parser, section, "connect_timeout_seconds", 25.0),
-        ping_timeout_seconds=_get_float_default(parser, section, "ping_timeout_seconds", 1.0),
+        ready_timeout_seconds=_get_float_default(parser, section, "ready_timeout_seconds", 10.0),
+        ping_timeout_seconds=_get_float_default(parser, section, "ping_timeout_seconds", 2.0),
         disconnect_after_check=_get_bool_default(parser, section, "disconnect_after_check", True),
     )
 
