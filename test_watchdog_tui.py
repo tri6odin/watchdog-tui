@@ -1,3 +1,4 @@
+import curses
 import tempfile
 import unittest
 from datetime import datetime
@@ -60,7 +61,7 @@ from watchdog_core import (
     seconds_until_next_history_bucket,
 )
 from watchdog_db import WatchdogDB
-from watchdog_ui import footer_line, screen_last_update_at
+from watchdog_ui import footer_line, run_tui, screen_last_update_at
 
 
 def make_test_config() -> WatchdogConfig:
@@ -389,6 +390,34 @@ B: EV=120013
 
         self.assertEqual(seconds_until_next_history_bucket(bucket_start), TEN_MINUTES)
         self.assertEqual(seconds_until_next_history_bucket(bucket_start + 125), TEN_MINUTES - 125)
+
+    def test_tui_redraws_history_only_when_time_bucket_changes(self):
+        stdscr = MagicMock()
+        db = MagicMock()
+
+        with patch("watchdog_ui.curses.curs_set"), \
+                patch("watchdog_ui.init_colors", return_value={}), \
+                patch("watchdog_ui.time.sleep"), \
+                patch("watchdog_ui.read_key", side_effect=[None, None, "q"]), \
+                patch("watchdog_ui.screen_last_update_at", side_effect=[100, 100, 200]), \
+                patch("watchdog_ui.draw_history_screen") as draw_history:
+            run_tui(stdscr, db, update_interval_seconds=3600, checkers={})
+
+        self.assertEqual(draw_history.call_count, 2)
+
+    def test_tui_redraws_history_after_terminal_resize(self):
+        stdscr = MagicMock()
+        db = MagicMock()
+
+        with patch("watchdog_ui.curses.curs_set"), \
+                patch("watchdog_ui.init_colors", return_value={}), \
+                patch("watchdog_ui.time.sleep"), \
+                patch("watchdog_ui.read_key", side_effect=[curses.KEY_RESIZE, "q"]), \
+                patch("watchdog_ui.screen_last_update_at", return_value=100), \
+                patch("watchdog_ui.draw_history_screen") as draw_history:
+            run_tui(stdscr, db, update_interval_seconds=3600, checkers={})
+
+        self.assertEqual(draw_history.call_count, 2)
 
     def test_ping_host_uses_linux_ping_flags(self):
         with patch("watchdog_checks.network.subprocess.run") as run:

@@ -368,6 +368,7 @@ def run_tui(
 
     current_screen = START_SCREEN
     next_auto_update_at = next_auto_update_time(update_interval_seconds)
+    last_history_render_state: Optional[tuple[Screen, int]] = None
 
     try:
         while True:
@@ -375,22 +376,32 @@ def run_tui(
                 perform_update(stdscr, db, colors, checkers, DEFAULT_UPDATE_STEP_DELAY_SECONDS)
                 drain_swipes(touch_reader)
                 current_screen = Screen.HOURS
+                last_history_render_state = None
                 next_auto_update_at = next_auto_update_time(update_interval_seconds)
 
             if current_screen == Screen.UPDATE:
                 perform_update(stdscr, db, colors, checkers, DEFAULT_UPDATE_STEP_DELAY_SECONDS)
                 drain_swipes(touch_reader)
                 current_screen = Screen.HOURS
+                last_history_render_state = None
                 next_auto_update_at = next_auto_update_time(update_interval_seconds)
             else:
-                draw_history_screen(stdscr, db, current_screen, colors)
+                render_state = (
+                    current_screen,
+                    screen_last_update_at(current_screen),
+                )
+                if render_state != last_history_render_state:
+                    draw_history_screen(stdscr, db, current_screen, colors)
+                    last_history_render_state = render_state
 
             key = read_key(stdscr)
             swipe = read_swipe(touch_reader)
 
             if key in ("q", "Q", "й", "Й"):
                 break
-            if key in (curses.KEY_RIGHT, "l", "L", "д", "Д") or swipe == SWIPE_LEFT:
+            if key == curses.KEY_RESIZE:
+                last_history_render_state = None
+            elif key in (curses.KEY_RIGHT, "l", "L", "д", "Д") or swipe == SWIPE_LEFT:
                 current_screen = next_screen(current_screen, 1)
             elif key in (curses.KEY_LEFT, "h", "H", "р", "Р") or swipe == SWIPE_RIGHT:
                 current_screen = next_screen(current_screen, -1)
