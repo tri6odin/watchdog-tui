@@ -476,7 +476,7 @@ def check_connected_wifi_network_linux(
             return False
         if not wait_for_interface_route_linux(gateway, source_address, wifi_interface, post_connect_timeout):
             return False
-        return ping_host_linux(gateway, ping_timeout_seconds, interface=wifi_interface, count=1)
+        return ping_host_linux(gateway, ping_timeout_seconds, interface=source_address, count=1)
     finally:
         if disconnect_after_check:
             disconnect_wifi_linux(wifi_interface)

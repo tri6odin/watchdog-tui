@@ -36,7 +36,10 @@ def ping_host_linux(
     interface: Optional[str] = None,
     count: int = 1,
 ) -> bool:
-    """Check a host with Linux iputils ping."""
+    """Check a host with Linux iputils ping.
+
+    The -I value can be an interface name or a source address.
+    """
 
     hard_timeout = max(0.001, timeout_seconds)
     packet_count = max(1, int(count))

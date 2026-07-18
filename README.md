@@ -419,7 +419,7 @@ nmcli --wait <timeout> connection up id <profile> ifname <wlan>
 nmcli --wait <timeout> --ask device wifi connect <ssid> ifname <wlan>
 ip -4 -o addr show dev <wlan> scope global
 ip route get <gateway> from <wlan-ipv4> oif <wlan>
-ping -c 1 -W <timeout> -I <wlan> <gateway>
+ping -c 1 -W <timeout> -I <wlan-ipv4> <gateway>
 nmcli --wait 5 device disconnect <wlan>
 nmcli --wait 5 radio wifi off
 ```
@@ -432,7 +432,9 @@ SSID/IPv4/route после подключения, `ping_timeout_seconds` отн
 Перед ping проверяется маршрут:
 `ip route get <gateway> from <wifi-ip> oif <wlan>` должен указывать на Wi-Fi
 интерфейс. Это защищает от ситуации, когда Ethernet и Wi-Fi находятся в одной
-подсети, а обычный route lookup выбирает `eth0` по метрике.
+подсети, а обычный route lookup выбирает `eth0` по метрике. Сам ping тоже
+запускается с `-I <wifi-ip>`, а не `-I <wlan>`, чтобы source address не был
+случайно выбран от Ethernet.
 
 Wi-Fi пароль передается в `nmcli --ask` через stdin только при fallback на
 `device wifi connect`. Если найден saved profile, пароль берется из
