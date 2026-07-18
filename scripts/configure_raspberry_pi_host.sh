@@ -70,7 +70,7 @@ install_base_packages() {
     log "Installing base packages"
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
-    apt-get install -y git python3 iproute2 iputils-ping curl smbclient network-manager iw rfkill fontconfig
+    apt-get install -y git python3 iproute2 iputils-ping iputils-arping curl smbclient network-manager iw rfkill fontconfig
 }
 
 write_bookworm_repo() {
@@ -307,13 +307,13 @@ write_watchdog_config() {
         wifi_interface=$(ask "Main Wi-Fi interface" "$wifi_interface")
         wifi_connect_timeout=$(ask "Main Wi-Fi connect timeout seconds" "$wifi_connect_timeout")
         wifi_ready_timeout=$(ask "Main Wi-Fi ready timeout seconds" "$wifi_ready_timeout")
-        wifi_ping_timeout=$(ask "Main Wi-Fi ping timeout seconds" "$wifi_ping_timeout")
+        wifi_ping_timeout=$(ask "Main Wi-Fi gateway probe timeout seconds" "$wifi_ping_timeout")
         wifi_disconnect_after=$(ask "Main Wi-Fi disconnect after check" "$wifi_disconnect_after")
         iot_wifi_gateway=$(ask "IoT Wi-Fi gateway" "$iot_wifi_gateway")
         iot_wifi_interface=$(ask "IoT Wi-Fi interface" "$iot_wifi_interface")
         iot_wifi_connect_timeout=$(ask "IoT Wi-Fi connect timeout seconds" "$iot_wifi_connect_timeout")
         iot_wifi_ready_timeout=$(ask "IoT Wi-Fi ready timeout seconds" "$iot_wifi_ready_timeout")
-        iot_wifi_ping_timeout=$(ask "IoT Wi-Fi ping timeout seconds" "$iot_wifi_ping_timeout")
+        iot_wifi_ping_timeout=$(ask "IoT Wi-Fi gateway probe timeout seconds" "$iot_wifi_ping_timeout")
         iot_wifi_disconnect_after=$(ask "IoT Wi-Fi disconnect after check" "$iot_wifi_disconnect_after")
     fi
 

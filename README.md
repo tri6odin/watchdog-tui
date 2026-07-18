@@ -166,7 +166,7 @@ sudo scripts/configure_raspberry_pi_host.sh
 Базовые пакеты:
 
 ```text
-git python3 iproute2 iputils-ping curl smbclient network-manager iw rfkill fontconfig
+git python3 iproute2 iputils-ping iputils-arping curl smbclient network-manager iw rfkill fontconfig
 ```
 
 Пакеты для TUI на `tty1`:
@@ -419,6 +419,8 @@ nmcli --wait <timeout> connection up id <profile> ifname <wlan>
 nmcli --wait <timeout> --ask device wifi connect <ssid> ifname <wlan>
 ip -4 -o addr show dev <wlan> scope global
 ip route get <gateway> from <wlan-ipv4> oif <wlan>
+arping -q -c 1 -w <timeout> -I <wlan> -s <wlan-ipv4> <gateway>
+# fallback, если arping не установлен:
 ping -c 1 -W <timeout> -I <wlan-ipv4> <gateway>
 nmcli --wait 5 device disconnect <wlan>
 nmcli --wait 5 radio wifi off
@@ -426,15 +428,16 @@ nmcli --wait 5 radio wifi off
 
 Для Wi-Fi таймауты разделены: `connect_timeout_seconds` ограничивает
 подключение через NetworkManager, `ready_timeout_seconds` ограничивает ожидание
-SSID/IPv4/route после подключения, `ping_timeout_seconds` относится только к
-одному контрольному ICMP до gateway.
+SSID/IPv4/route после подключения, `ping_timeout_seconds` ограничивает одну
+проверку gateway: основной `arping` или fallback `ping`.
 
-Перед ping проверяется маршрут:
+Перед проверкой gateway проверяется маршрут:
 `ip route get <gateway> from <wifi-ip> oif <wlan>` должен указывать на Wi-Fi
 интерфейс. Это защищает от ситуации, когда Ethernet и Wi-Fi находятся в одной
-подсети, а обычный route lookup выбирает `eth0` по метрике. Сам ping тоже
-запускается с `-I <wifi-ip>`, а не `-I <wlan>`, чтобы source address не был
-случайно выбран от Ethernet.
+подсети, а обычный route lookup выбирает `eth0` по метрике. Для gateway в той
+же подсети watchdog сначала использует `arping` с явным `-I <wlan>` и
+`-s <wifi-ip>`. Это проверяет именно Wi-Fi линк до шлюза. Если `arping` не
+установлен, используется один fallback `ping` с `-I <wifi-ip>`.
 
 Wi-Fi пароль передается в `nmcli --ask` через stdin только при fallback на
 `device wifi connect`. Если найден saved profile, пароль берется из

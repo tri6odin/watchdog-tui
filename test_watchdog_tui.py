@@ -30,9 +30,10 @@ from touch_swipe import (
 from watchdog_checks import build_checkers
 from watchdog_checks.haos import check_home_assistant_api, check_http_endpoint
 from watchdog_checks.nas import check_smb_share_linux, smb_share_is_listed
-from watchdog_checks.network import check_tcp_port, check_tls_handshake, ping_host_linux
+from watchdog_checks.network import arping_host_linux, check_tcp_port, check_tls_handshake, ping_host_linux
 from watchdog_checks.wifi import (
     active_wifi_ssid_linux,
+    check_wifi_gateway_linux,
     check_wifi_network_linux,
     connect_wifi_linux,
     detect_wifi_interface_linux,
@@ -459,6 +460,35 @@ B: EV=120013
             self.assertEqual(args, ["ping", "-c", "1", "-W", "2", "192.168.50.1"])
             self.assertEqual(run.call_args.kwargs["timeout"], 4.0)
 
+    def test_arping_host_uses_interface_and_source_address(self):
+        with patch("watchdog_checks.network.subprocess.run") as run:
+            run.return_value.returncode = 0
+
+            self.assertTrue(arping_host_linux("192.168.50.1", "192.168.50.218", "wlan0", 1.0))
+
+            args = run.call_args.args[0]
+            self.assertEqual(
+                args,
+                [
+                    "arping",
+                    "-q",
+                    "-c",
+                    "1",
+                    "-w",
+                    "1",
+                    "-I",
+                    "wlan0",
+                    "-s",
+                    "192.168.50.218",
+                    "192.168.50.1",
+                ],
+            )
+            self.assertEqual(run.call_args.kwargs["timeout"], 3.0)
+
+    def test_arping_host_returns_none_when_missing(self):
+        with patch("watchdog_checks.network.subprocess.run", side_effect=FileNotFoundError):
+            self.assertIsNone(arping_host_linux("192.168.50.1", "192.168.50.218", "wlan0", 1.0))
+
     def test_http_endpoint_uses_curl_with_hard_timeout(self):
         with patch("watchdog_checks.haos.subprocess.run") as run:
             run.return_value.returncode = 0
@@ -798,7 +828,7 @@ homes                                           Disk
 
         nmcli.assert_not_called()
 
-    def test_wifi_network_check_uses_profile_and_pings_via_source_ip(self):
+    def test_wifi_network_check_uses_profile_and_checks_gateway_via_wifi_source_ip(self):
         with patch("watchdog_checks.wifi.detect_wifi_interface_linux", return_value="wlan0") as detect:
             with patch("watchdog_checks.wifi.wifi_profile_for_ssid_linux", return_value="netplan-wlan0-example-wifi"):
                 with patch("watchdog_checks.wifi.nmcli_run", return_value=True) as nmcli:
@@ -808,19 +838,20 @@ homes                                           Disk
                                 with patch("watchdog_checks.wifi.wait_for_interface_ipv4_linux", return_value="192.168.50.218") as wait_ip:
                                     with patch("watchdog_checks.wifi.wait_for_interface_route_linux", return_value=True) as wait_route:
                                         with patch("watchdog_checks.wifi.wait_for_interface_no_ipv4_linux", return_value=True) as wait_no_ip:
-                                            with patch("watchdog_checks.wifi.ping_host_linux", return_value=True) as ping:
-                                                self.assertTrue(
-                                                    check_wifi_network_linux(
-                                                        "example-wifi",
-                                                        "test-wifi-pass",
-                                                        "192.168.50.1",
-                                                        "auto",
-                                                        25.0,
-                                                        10.0,
-                                                        1.0,
-                                                        True,
+                                            with patch("watchdog_checks.wifi.arping_host_linux", return_value=True) as arping:
+                                                with patch("watchdog_checks.wifi.ping_host_linux") as ping:
+                                                    self.assertTrue(
+                                                        check_wifi_network_linux(
+                                                            "example-wifi",
+                                                            "test-wifi-pass",
+                                                            "192.168.50.1",
+                                                            "auto",
+                                                            25.0,
+                                                            10.0,
+                                                            1.0,
+                                                            True,
+                                                        )
                                                     )
-                                                )
 
         detect.assert_called_once_with("auto", 5.0)
         wait_device.assert_called_once_with("wlan0", 10.0)
@@ -833,10 +864,30 @@ homes                                           Disk
         wait_ssid.assert_called_once_with("wlan0", "example-wifi", 10.0)
         wait_ip.assert_called_once_with("wlan0", 10.0)
         wait_route.assert_called_once_with("192.168.50.1", "192.168.50.218", "wlan0", 10.0)
-        ping.assert_called_once_with("192.168.50.1", 1.0, interface="192.168.50.218", count=1)
+        arping.assert_called_once_with("192.168.50.1", "192.168.50.218", "wlan0", 1.0, count=1)
+        ping.assert_not_called()
         wait_no_ip.assert_called_once_with("wlan0", 5.0)
         self.assertEqual(nmcli.call_args_list[-2].args[0], ["nmcli", "--wait", "5", "device", "disconnect", "wlan0"])
         self.assertEqual(nmcli.call_args_list[-1].args[0], ["nmcli", "--wait", "5", "radio", "wifi", "off"])
+
+    def test_wifi_gateway_check_falls_back_to_ping_from_source_ip(self):
+        with patch("watchdog_checks.wifi.wait_for_connected_ssid_linux", return_value=True):
+            with patch("watchdog_checks.wifi.wait_for_interface_ipv4_linux", return_value="192.168.50.218"):
+                with patch("watchdog_checks.wifi.wait_for_interface_route_linux", return_value=True):
+                    with patch("watchdog_checks.wifi.arping_host_linux", return_value=None) as arping:
+                        with patch("watchdog_checks.wifi.ping_host_linux", return_value=True) as ping:
+                            self.assertTrue(
+                                check_wifi_gateway_linux(
+                                    "example-iot",
+                                    "192.168.50.1",
+                                    "wlan0",
+                                    10.0,
+                                    1.0,
+                                )
+                            )
+
+        arping.assert_called_once_with("192.168.50.1", "192.168.50.218", "wlan0", 1.0, count=1)
+        ping.assert_called_once_with("192.168.50.1", 1.0, interface="192.168.50.218", count=1)
 
     def test_wifi_network_check_turns_radio_off_when_connect_fails(self):
         with patch("watchdog_checks.wifi.detect_wifi_interface_linux", return_value="wlan0"):

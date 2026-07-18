@@ -10,12 +10,12 @@ from math import ceil
 from typing import Optional
 
 
-PING_PROCESS_GUARD_SECONDS = 2.0
+PROBE_PROCESS_GUARD_SECONDS = 2.0
 PING_PACKET_INTERVAL_SECONDS = 1.0
 
 
-def _ping_wait_seconds(timeout_seconds: float) -> int:
-    """Return the integer timeout expected by iputils ping -W."""
+def _probe_wait_seconds(timeout_seconds: float) -> int:
+    """Return the integer timeout expected by iputils tools."""
 
     return max(1, ceil(max(0.001, timeout_seconds)))
 
@@ -26,7 +26,7 @@ def _ping_process_timeout_seconds(packet_timeout_seconds: int, packet_count: int
     return (
         packet_timeout_seconds * packet_count
         + PING_PACKET_INTERVAL_SECONDS * max(0, packet_count - 1)
-        + PING_PROCESS_GUARD_SECONDS
+        + PROBE_PROCESS_GUARD_SECONDS
     )
 
 
@@ -43,7 +43,7 @@ def ping_host_linux(
 
     hard_timeout = max(0.001, timeout_seconds)
     packet_count = max(1, int(count))
-    ping_timeout_seconds = _ping_wait_seconds(hard_timeout)
+    ping_timeout_seconds = _probe_wait_seconds(hard_timeout)
     process_timeout = _ping_process_timeout_seconds(ping_timeout_seconds, packet_count)
     try:
         command = ["ping", "-c", str(packet_count), "-W", str(ping_timeout_seconds)]
@@ -58,6 +58,49 @@ def ping_host_linux(
             timeout=process_timeout,
             check=False,
         )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def arping_host_linux(
+    host: str,
+    source_address: str,
+    interface: str,
+    timeout_seconds: float,
+    count: int = 1,
+) -> Optional[bool]:
+    """Check an IPv4 neighbor through a concrete interface/source address.
+
+    Returns None when arping is not installed so callers can use another check.
+    """
+
+    hard_timeout = max(0.001, timeout_seconds)
+    packet_count = max(1, int(count))
+    deadline_seconds = _probe_wait_seconds(hard_timeout)
+    process_timeout = deadline_seconds + PROBE_PROCESS_GUARD_SECONDS
+    try:
+        result = subprocess.run(
+            [
+                "arping",
+                "-q",
+                "-c",
+                str(packet_count),
+                "-w",
+                str(deadline_seconds),
+                "-I",
+                interface,
+                "-s",
+                source_address,
+                host,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=process_timeout,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
     except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0

@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import subprocess
 import time
+from math import ceil
 from typing import Mapping, Optional
 
 from watchdog_config import WifiConfig
 
-from .network import ping_host_linux
+from .network import arping_host_linux, ping_host_linux
 
 
 DISCONNECT_TIMEOUT_SECONDS = 5.0
+POLL_COMMAND_TIMEOUT_SECONDS = 1.0
+MAX_DEVICE_READY_TIMEOUT_SECONDS = 10.0
+MAX_SCAN_TIMEOUT_SECONDS = 10.0
 
 
 def interface_ipv4_address_linux(interface: str, timeout_seconds: float) -> Optional[str]:
@@ -58,7 +62,7 @@ def wait_for_interface_ipv4_linux(
         if remaining <= 0:
             return None
 
-        address = interface_ipv4_address_linux(interface, min(remaining, 1.0))
+        address = interface_ipv4_address_linux(interface, min(remaining, POLL_COMMAND_TIMEOUT_SECONDS))
         if address is not None:
             return address
 
@@ -118,9 +122,9 @@ def wait_for_interface_route_linux(
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            return interface_route_uses_linux(host, source_address, interface, 1.0)
+            return False
 
-        if interface_route_uses_linux(host, source_address, interface, min(remaining, 1.0)):
+        if interface_route_uses_linux(host, source_address, interface, min(remaining, POLL_COMMAND_TIMEOUT_SECONDS)):
             return True
 
         time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
@@ -138,9 +142,9 @@ def wait_for_interface_no_ipv4_linux(
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            return interface_ipv4_address_linux(interface, 1.0) is None
+            return False
 
-        if interface_ipv4_address_linux(interface, min(remaining, 1.0)) is None:
+        if interface_ipv4_address_linux(interface, min(remaining, POLL_COMMAND_TIMEOUT_SECONDS)) is None:
             return True
 
         time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
@@ -190,16 +194,16 @@ def wait_for_connected_ssid_linux(
     timeout_seconds: float,
     poll_interval_seconds: float = 0.2,
 ) -> bool:
-    """Wait until iw reports the expected SSID."""
+    """Wait until NetworkManager/iw reports the expected SSID."""
 
     hard_timeout = max(0.001, timeout_seconds)
     deadline = time.monotonic() + hard_timeout
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            return active_wifi_ssid_linux(interface, 1.0) == ssid
+            return False
 
-        if active_wifi_ssid_linux(interface, min(remaining, 1.0)) == ssid:
+        if active_wifi_ssid_linux(interface, min(remaining, POLL_COMMAND_TIMEOUT_SECONDS)) == ssid:
             return True
 
         time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
@@ -238,7 +242,7 @@ def detect_wifi_interface_linux(configured_interface: str, timeout_seconds: floa
 def nmcli_wait_arg(timeout_seconds: float) -> str:
     """nmcli accepts --wait as integer seconds."""
 
-    return str(max(1, int(timeout_seconds)))
+    return str(max(1, ceil(max(0.001, timeout_seconds))))
 
 
 def nmcli_run(command: list[str], timeout_seconds: float, input_text: Optional[str] = None) -> bool:
@@ -313,6 +317,10 @@ def wifi_device_state_linux(interface: str, timeout_seconds: float) -> Optional[
 def wifi_ssid_visible_linux(ssid: str, interface: str, timeout_seconds: float) -> bool:
     """Return whether NetworkManager scan cache contains the requested SSID."""
 
+    expected = ssid.strip()
+    if not expected:
+        return False
+
     output = nmcli_output(
         ["nmcli", "-g", "SSID", "device", "wifi", "list", "ifname", interface],
         timeout_seconds,
@@ -320,7 +328,6 @@ def wifi_ssid_visible_linux(ssid: str, interface: str, timeout_seconds: float) -
     if output is None:
         return False
 
-    expected = ssid.strip()
     return any(line.strip() == expected for line in output.splitlines())
 
 
@@ -343,9 +350,9 @@ def wait_for_wifi_ssid_visible_linux(
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            return wifi_ssid_visible_linux(ssid, interface, 1.0)
+            return False
 
-        if wifi_ssid_visible_linux(ssid, interface, min(remaining, 1.0)):
+        if wifi_ssid_visible_linux(ssid, interface, min(remaining, POLL_COMMAND_TIMEOUT_SECONDS)):
             return True
 
         time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
@@ -360,14 +367,13 @@ def wait_for_wifi_device_available_linux(
 
     hard_timeout = max(0.001, timeout_seconds)
     deadline = time.monotonic() + hard_timeout
-    last_state = None
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return False
 
-        last_state = wifi_device_state_linux(interface, min(remaining, 1.0))
-        if last_state is not None and last_state not in ("unavailable", "unmanaged"):
+        state = wifi_device_state_linux(interface, min(remaining, POLL_COMMAND_TIMEOUT_SECONDS))
+        if state is not None and state not in ("unavailable", "unmanaged"):
             return True
 
         time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
@@ -375,6 +381,10 @@ def wait_for_wifi_device_available_linux(
 
 def wifi_profile_for_ssid_linux(ssid: str, timeout_seconds: float) -> Optional[str]:
     """Find saved NetworkManager connection profile for an SSID."""
+
+    expected_ssid = ssid.strip()
+    if not expected_ssid:
+        return None
 
     output = nmcli_output(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"], timeout_seconds)
     if output is None:
@@ -386,7 +396,7 @@ def wifi_profile_for_ssid_linux(ssid: str, timeout_seconds: float) -> Optional[s
         name, connection_type = line.rsplit(":", 1)
         if connection_type not in ("wifi", "802-11-wireless"):
             continue
-        if wifi_ssid_for_profile_linux(name, timeout_seconds) == ssid:
+        if wifi_ssid_for_profile_linux(name, timeout_seconds) == expected_ssid:
             return name
     return None
 
@@ -399,8 +409,12 @@ def connect_wifi_linux(
 ) -> bool:
     """Connect through saved profile first, then fallback to device wifi connect."""
 
+    target_ssid = ssid.strip()
+    if not target_ssid:
+        return False
+
     wait_arg = nmcli_wait_arg(timeout_seconds)
-    profile = wifi_profile_for_ssid_linux(ssid, min(timeout_seconds, 5.0))
+    profile = wifi_profile_for_ssid_linux(target_ssid, min(timeout_seconds, 5.0))
     if profile is not None:
         connected = nmcli_run(
             ["nmcli", "--wait", wait_arg, "connection", "up", "id", profile, "ifname", interface],
@@ -412,7 +426,7 @@ def connect_wifi_linux(
     if not password:
         return False
 
-    if not wait_for_wifi_ssid_visible_linux(ssid, interface, min(timeout_seconds, 10.0)):
+    if not wait_for_wifi_ssid_visible_linux(target_ssid, interface, min(timeout_seconds, MAX_SCAN_TIMEOUT_SECONDS)):
         return False
 
     return nmcli_run(
@@ -424,7 +438,7 @@ def connect_wifi_linux(
             "device",
             "wifi",
             "connect",
-            ssid,
+            target_ssid,
             "ifname",
             interface,
         ],
@@ -445,6 +459,43 @@ def disconnect_wifi_linux(interface: str, timeout_seconds: float = DISCONNECT_TI
     return no_ipv4 and active_ssid is None
 
 
+def check_wifi_gateway_linux(
+    ssid: str,
+    gateway: str,
+    wifi_interface: str,
+    ready_timeout_seconds: float,
+    ping_timeout_seconds: float,
+) -> bool:
+    """Validate the connected Wi-Fi network before the single gateway ping."""
+
+    target_ssid = ssid.strip()
+    target_gateway = gateway.strip()
+    if not target_ssid or not target_gateway:
+        return False
+
+    if not wait_for_connected_ssid_linux(wifi_interface, target_ssid, ready_timeout_seconds):
+        return False
+
+    source_address = wait_for_interface_ipv4_linux(wifi_interface, ready_timeout_seconds)
+    if source_address is None:
+        return False
+
+    if not wait_for_interface_route_linux(target_gateway, source_address, wifi_interface, ready_timeout_seconds):
+        return False
+
+    arping_result = arping_host_linux(
+        target_gateway,
+        source_address,
+        wifi_interface,
+        ping_timeout_seconds,
+        count=1,
+    )
+    if arping_result is not None:
+        return arping_result
+
+    return ping_host_linux(target_gateway, ping_timeout_seconds, interface=source_address, count=1)
+
+
 def check_connected_wifi_network_linux(
     ssid: str,
     password: str,
@@ -458,25 +509,16 @@ def check_connected_wifi_network_linux(
     """Check one Wi-Fi network assuming radio is already enabled."""
 
     try:
-        connected = connect_wifi_linux(ssid, password, wifi_interface, connect_timeout_seconds)
-        if not connected:
+        if not connect_wifi_linux(ssid, password, wifi_interface, connect_timeout_seconds):
             return False
 
-        post_connect_timeout = ready_timeout_seconds
-        connected_to_expected = wait_for_connected_ssid_linux(
-            wifi_interface,
+        return check_wifi_gateway_linux(
             ssid,
-            post_connect_timeout,
+            gateway,
+            wifi_interface,
+            ready_timeout_seconds,
+            ping_timeout_seconds,
         )
-        if not connected_to_expected:
-            return False
-
-        source_address = wait_for_interface_ipv4_linux(wifi_interface, post_connect_timeout)
-        if source_address is None:
-            return False
-        if not wait_for_interface_route_linux(gateway, source_address, wifi_interface, post_connect_timeout):
-            return False
-        return ping_host_linux(gateway, ping_timeout_seconds, interface=source_address, count=1)
     finally:
         if disconnect_after_check:
             disconnect_wifi_linux(wifi_interface)
@@ -506,7 +548,10 @@ def check_wifi_network_linux(
     try:
         if not radio_on:
             return False
-        device_ready = wait_for_wifi_device_available_linux(wifi_interface, min(ready_timeout_seconds, 10.0))
+        device_ready = wait_for_wifi_device_available_linux(
+            wifi_interface,
+            min(ready_timeout_seconds, MAX_DEVICE_READY_TIMEOUT_SECONDS),
+        )
         if not device_ready:
             return False
         return check_connected_wifi_network_linux(
@@ -544,7 +589,10 @@ def check_wifi_pair(wifi_config: WifiConfig, iot_wifi_config: WifiConfig) -> Map
     try:
         if not radio_on:
             return {"WIFI": False, "IOT WIFI": False}
-        device_ready = wait_for_wifi_device_available_linux(wifi_interface, min(ready_timeout, 10.0))
+        device_ready = wait_for_wifi_device_available_linux(
+            wifi_interface,
+            min(ready_timeout, MAX_DEVICE_READY_TIMEOUT_SECONDS),
+        )
         if not device_ready:
             return {"WIFI": False, "IOT WIFI": False}
         wifi_ok = check_connected_wifi_network_linux(
