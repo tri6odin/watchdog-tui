@@ -98,7 +98,7 @@ def make_test_config() -> WatchdogConfig:
             interface="auto",
             connect_timeout_seconds=25.0,
             ready_timeout_seconds=10.0,
-            ping_timeout_seconds=2.0,
+            gateway_timeout_seconds=2.0,
             disconnect_after_check=True,
         ),
         iot_wifi=WifiConfig(
@@ -108,7 +108,7 @@ def make_test_config() -> WatchdogConfig:
             interface="auto",
             connect_timeout_seconds=25.0,
             ready_timeout_seconds=10.0,
-            ping_timeout_seconds=2.0,
+            gateway_timeout_seconds=2.0,
             disconnect_after_check=True,
         ),
         touch=TouchConfig(
@@ -171,7 +171,7 @@ gateway = 192.168.50.1
 interface = auto
 connect_timeout_seconds = 25.0
 ready_timeout_seconds = 10.0
-ping_timeout_seconds = 2.0
+gateway_timeout_seconds = 2.0
 disconnect_after_check = true
 
 [iot_wifi]
@@ -181,7 +181,7 @@ gateway = 192.168.50.1
 interface = auto
 connect_timeout_seconds = 25.0
 ready_timeout_seconds = 10.0
-ping_timeout_seconds = 2.0
+gateway_timeout_seconds = 2.0
 disconnect_after_check = true
 
 [touch]
@@ -212,16 +212,70 @@ swipe_horizontal_ratio = 1.1
         self.assertEqual(config.wifi.password, "test-wifi-pass")
         self.assertEqual(config.wifi.gateway, "192.168.50.1")
         self.assertEqual(config.wifi.ready_timeout_seconds, 10.0)
-        self.assertEqual(config.wifi.ping_timeout_seconds, 2.0)
+        self.assertEqual(config.wifi.gateway_timeout_seconds, 2.0)
         self.assertEqual(config.iot_wifi.ssid, "example-iot")
         self.assertEqual(config.iot_wifi.gateway, "192.168.50.1")
         self.assertEqual(config.iot_wifi.ready_timeout_seconds, 10.0)
-        self.assertEqual(config.iot_wifi.ping_timeout_seconds, 2.0)
+        self.assertEqual(config.iot_wifi.gateway_timeout_seconds, 2.0)
         self.assertTrue(config.touch.enabled)
         self.assertEqual(config.touch.event_device, "auto")
         self.assertEqual(config.touch.swipe_min_dx, 1200)
         self.assertEqual(config.touch.swipe_max_dt_sec, 2.2)
         self.assertEqual(config.touch.swipe_horizontal_ratio, 1.1)
+
+    def test_config_file_accepts_legacy_wifi_ping_timeout(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "watchdog.conf"
+            config_path.write_text(
+                """
+[global]
+http_user_agent = watchdog-test/1.0
+
+[lcl_net]
+address = 192.168.50.1
+timeout_seconds = 1.0
+
+[int_net]
+host = ya.ru
+port = 443
+timeout_seconds = 1.0
+
+[vpn]
+host = instagram.com
+port = 443
+timeout_seconds = 5.0
+
+[haos]
+address = 192.168.50.4
+port = 8123
+api_path = /api/config
+timeout_seconds = 2.0
+token = test-token
+
+[nas]
+address = 192.168.50.3
+port = 445
+tcp_timeout_seconds = 1.0
+smb_timeout_seconds = 5.0
+smb_user = watchdog
+smb_pass = test-pass
+smb_share = BACKUP
+
+[wifi]
+password = test-wifi-pass
+ping_timeout_seconds = 3.0
+
+[iot_wifi]
+password = test-wifi-pass
+ping_timeout_seconds = 4.0
+""",
+                encoding="utf-8",
+            )
+
+            config = load_watchdog_config(config_path)
+
+        self.assertEqual(config.wifi.gateway_timeout_seconds, 3.0)
+        self.assertEqual(config.iot_wifi.gateway_timeout_seconds, 4.0)
 
     def test_aggregate_priority(self):
         self.assertEqual(aggregate_statuses([]), Status.NO_DATA)

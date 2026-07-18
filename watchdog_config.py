@@ -71,7 +71,7 @@ class WifiConfig:
     interface: str
     connect_timeout_seconds: float
     ready_timeout_seconds: float
-    ping_timeout_seconds: float
+    gateway_timeout_seconds: float
     disconnect_after_check: bool
 
 
@@ -184,7 +184,7 @@ def _load_wifi_config(
             interface="auto",
             connect_timeout_seconds=25.0,
             ready_timeout_seconds=10.0,
-            ping_timeout_seconds=2.0,
+            gateway_timeout_seconds=2.0,
             disconnect_after_check=True,
         )
 
@@ -195,7 +195,13 @@ def _load_wifi_config(
         interface=_get_str_default(parser, section, "interface", "auto"),
         connect_timeout_seconds=_get_float_default(parser, section, "connect_timeout_seconds", 25.0),
         ready_timeout_seconds=_get_float_default(parser, section, "ready_timeout_seconds", 10.0),
-        ping_timeout_seconds=_get_float_default(parser, section, "ping_timeout_seconds", 2.0),
+        gateway_timeout_seconds=_get_float_default_legacy(
+            parser,
+            section,
+            "gateway_timeout_seconds",
+            "ping_timeout_seconds",
+            2.0,
+        ),
         disconnect_after_check=_get_bool_default(parser, section, "disconnect_after_check", True),
     )
 
@@ -262,6 +268,18 @@ def _get_float_default(
     if value <= 0:
         raise ConfigError(f"Параметр [{section}] {option} должен быть больше нуля")
     return value
+
+
+def _get_float_default_legacy(
+    parser: configparser.ConfigParser,
+    section: str,
+    option: str,
+    legacy_option: str,
+    default: float,
+) -> float:
+    if parser.has_section(section) and parser.has_option(section, option):
+        return _get_float_default(parser, section, option, default)
+    return _get_float_default(parser, section, legacy_option, default)
 
 
 def _get_int_default(

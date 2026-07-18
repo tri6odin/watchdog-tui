@@ -274,7 +274,7 @@ gateway = 192.168.50.1
 interface = auto
 connect_timeout_seconds = 25.0
 ready_timeout_seconds = 10.0
-ping_timeout_seconds = 2.0
+gateway_timeout_seconds = 2.0
 disconnect_after_check = true
 
 [iot_wifi]
@@ -284,7 +284,7 @@ gateway = 192.168.50.1
 interface = auto
 connect_timeout_seconds = 25.0
 ready_timeout_seconds = 10.0
-ping_timeout_seconds = 2.0
+gateway_timeout_seconds = 2.0
 disconnect_after_check = true
 
 [touch]
@@ -428,8 +428,11 @@ nmcli --wait 5 radio wifi off
 
 Для Wi-Fi таймауты разделены: `connect_timeout_seconds` ограничивает
 подключение через NetworkManager, `ready_timeout_seconds` ограничивает ожидание
-SSID/IPv4/route после подключения, `ping_timeout_seconds` ограничивает одну
+SSID/IPv4/route после подключения, `gateway_timeout_seconds` ограничивает одну
 проверку gateway: основной `arping` или fallback `ping`.
+
+Старое имя `ping_timeout_seconds` в Wi-Fi секциях пока читается как legacy
+fallback, но в новом конфиге лучше использовать `gateway_timeout_seconds`.
 
 Перед проверкой gateway проверяется маршрут:
 `ip route get <gateway> from <wifi-ip> oif <wlan>` должен указывать на Wi-Fi

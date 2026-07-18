@@ -464,7 +464,7 @@ def check_wifi_gateway_linux(
     gateway: str,
     wifi_interface: str,
     ready_timeout_seconds: float,
-    ping_timeout_seconds: float,
+    gateway_timeout_seconds: float,
 ) -> bool:
     """Validate the connected Wi-Fi network before the single gateway ping."""
 
@@ -487,13 +487,13 @@ def check_wifi_gateway_linux(
         target_gateway,
         source_address,
         wifi_interface,
-        ping_timeout_seconds,
+        gateway_timeout_seconds,
         count=1,
     )
     if arping_result is not None:
         return arping_result
 
-    return ping_host_linux(target_gateway, ping_timeout_seconds, interface=source_address, count=1)
+    return ping_host_linux(target_gateway, gateway_timeout_seconds, interface=source_address, count=1)
 
 
 def check_connected_wifi_network_linux(
@@ -503,7 +503,7 @@ def check_connected_wifi_network_linux(
     wifi_interface: str,
     connect_timeout_seconds: float,
     ready_timeout_seconds: float,
-    ping_timeout_seconds: float,
+    gateway_timeout_seconds: float,
     disconnect_after_check: bool,
 ) -> bool:
     """Check one Wi-Fi network assuming radio is already enabled."""
@@ -517,7 +517,7 @@ def check_connected_wifi_network_linux(
             gateway,
             wifi_interface,
             ready_timeout_seconds,
-            ping_timeout_seconds,
+            gateway_timeout_seconds,
         )
     finally:
         if disconnect_after_check:
@@ -531,7 +531,7 @@ def check_wifi_network_linux(
     interface: str,
     connect_timeout_seconds: float,
     ready_timeout_seconds: float,
-    ping_timeout_seconds: float,
+    gateway_timeout_seconds: float,
     disconnect_after_check: bool,
 ) -> bool:
     """Connect to a Wi-Fi network and check gateway through Wi-Fi source IP."""
@@ -561,7 +561,7 @@ def check_wifi_network_linux(
             wifi_interface,
             connect_timeout_seconds,
             ready_timeout_seconds,
-            ping_timeout_seconds,
+            gateway_timeout_seconds,
             disconnect_after_check,
         )
     finally:
@@ -602,7 +602,7 @@ def check_wifi_pair(wifi_config: WifiConfig, iot_wifi_config: WifiConfig) -> Map
             wifi_interface,
             wifi_config.connect_timeout_seconds,
             wifi_config.ready_timeout_seconds,
-            wifi_config.ping_timeout_seconds,
+            wifi_config.gateway_timeout_seconds,
             wifi_config.disconnect_after_check,
         )
         iot_wifi_ok = check_connected_wifi_network_linux(
@@ -612,7 +612,7 @@ def check_wifi_pair(wifi_config: WifiConfig, iot_wifi_config: WifiConfig) -> Map
             wifi_interface,
             iot_wifi_config.connect_timeout_seconds,
             iot_wifi_config.ready_timeout_seconds,
-            iot_wifi_config.ping_timeout_seconds,
+            iot_wifi_config.gateway_timeout_seconds,
             iot_wifi_config.disconnect_after_check,
         )
         return {"WIFI": wifi_ok, "IOT WIFI": iot_wifi_ok}

@@ -43,10 +43,10 @@ def ping_host_linux(
 
     hard_timeout = max(0.001, timeout_seconds)
     packet_count = max(1, int(count))
-    ping_timeout_seconds = _probe_wait_seconds(hard_timeout)
-    process_timeout = _ping_process_timeout_seconds(ping_timeout_seconds, packet_count)
+    wait_seconds = _probe_wait_seconds(hard_timeout)
+    process_timeout = _ping_process_timeout_seconds(wait_seconds, packet_count)
     try:
-        command = ["ping", "-c", str(packet_count), "-W", str(ping_timeout_seconds)]
+        command = ["ping", "-c", str(packet_count), "-W", str(wait_seconds)]
         if interface is not None:
             command.extend(["-I", interface])
         command.append(host)

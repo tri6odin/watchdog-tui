@@ -272,13 +272,13 @@ write_watchdog_config() {
     wifi_interface=auto
     wifi_connect_timeout=25.0
     wifi_ready_timeout=10.0
-    wifi_ping_timeout=2.0
+    wifi_gateway_timeout=2.0
     wifi_disconnect_after=true
     iot_wifi_gateway=$lcl_net_address
     iot_wifi_interface=auto
     iot_wifi_connect_timeout=25.0
     iot_wifi_ready_timeout=10.0
-    iot_wifi_ping_timeout=2.0
+    iot_wifi_gateway_timeout=2.0
     iot_wifi_disconnect_after=true
 
     touch_enabled=true
@@ -307,13 +307,13 @@ write_watchdog_config() {
         wifi_interface=$(ask "Main Wi-Fi interface" "$wifi_interface")
         wifi_connect_timeout=$(ask "Main Wi-Fi connect timeout seconds" "$wifi_connect_timeout")
         wifi_ready_timeout=$(ask "Main Wi-Fi ready timeout seconds" "$wifi_ready_timeout")
-        wifi_ping_timeout=$(ask "Main Wi-Fi gateway probe timeout seconds" "$wifi_ping_timeout")
+        wifi_gateway_timeout=$(ask "Main Wi-Fi gateway probe timeout seconds" "$wifi_gateway_timeout")
         wifi_disconnect_after=$(ask "Main Wi-Fi disconnect after check" "$wifi_disconnect_after")
         iot_wifi_gateway=$(ask "IoT Wi-Fi gateway" "$iot_wifi_gateway")
         iot_wifi_interface=$(ask "IoT Wi-Fi interface" "$iot_wifi_interface")
         iot_wifi_connect_timeout=$(ask "IoT Wi-Fi connect timeout seconds" "$iot_wifi_connect_timeout")
         iot_wifi_ready_timeout=$(ask "IoT Wi-Fi ready timeout seconds" "$iot_wifi_ready_timeout")
-        iot_wifi_ping_timeout=$(ask "IoT Wi-Fi gateway probe timeout seconds" "$iot_wifi_ping_timeout")
+        iot_wifi_gateway_timeout=$(ask "IoT Wi-Fi gateway probe timeout seconds" "$iot_wifi_gateway_timeout")
         iot_wifi_disconnect_after=$(ask "IoT Wi-Fi disconnect after check" "$iot_wifi_disconnect_after")
     fi
 
@@ -364,7 +364,7 @@ gateway = $wifi_gateway
 interface = $wifi_interface
 connect_timeout_seconds = $wifi_connect_timeout
 ready_timeout_seconds = $wifi_ready_timeout
-ping_timeout_seconds = $wifi_ping_timeout
+gateway_timeout_seconds = $wifi_gateway_timeout
 disconnect_after_check = $wifi_disconnect_after
 
 [iot_wifi]
@@ -374,7 +374,7 @@ gateway = $iot_wifi_gateway
 interface = $iot_wifi_interface
 connect_timeout_seconds = $iot_wifi_connect_timeout
 ready_timeout_seconds = $iot_wifi_ready_timeout
-ping_timeout_seconds = $iot_wifi_ping_timeout
+gateway_timeout_seconds = $iot_wifi_gateway_timeout
 disconnect_after_check = $iot_wifi_disconnect_after
 
 [touch]
