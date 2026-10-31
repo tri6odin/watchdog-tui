@@ -56,7 +56,7 @@ require_root() {
 require_repo() {
     if [ ! -d "$APP_DIR" ]; then
         log "App dir does not exist: $APP_DIR"
-        log "Clone the linux branch there before running this script."
+        log "Clone the main branch there before running this script."
         exit 1
     fi
     if [ ! -f "$APP_DIR/watchdog_tui.py" ]; then

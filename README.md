@@ -6,7 +6,7 @@
 
 ![Watchdog TUI](docs/watchdog-tui.png)
 
-Текущая ветка `linux` рассчитана на Raspberry Pi OS Lite и запуск на `tty1`
+Ветка `main` рассчитана на Raspberry Pi OS Lite и запуск на `tty1`
 через `kmscon`.
 
 ## Оглавление
@@ -50,43 +50,19 @@ setup-скрипт настраивает CLI-загрузку и выводит
 
 ## Быстрая установка
 
-### 1. Подготовить SSH key для приватной GitHub-репы
+### 1. Скачать репозиторий
 
-На Raspberry Pi под пользователем, который будет делать `git pull`:
-
-```bash
-ssh-keygen -t ed25519 -C "watchdog-pi"
-cat ~/.ssh/id_ed25519.pub
-```
-
-Можно оставить путь `~/.ssh/id_ed25519` и пустой passphrase.
-
-Добавь public key в GitHub:
-
-```text
-watchdog-tui -> Settings -> Deploy keys -> Add deploy key
-```
-
-Для Raspberry Pi достаточно read-only deploy key. Проверка:
-
-```bash
-ssh -T git@github.com
-```
-
-Нормальный ответ GitHub может говорить, что shell access не предоставляется.
-Главное, чтобы не было `Permission denied (publickey)`.
-
-### 2. Скачать репозиторий
+Репозиторий публичный: deploy key и SSH-настройка для скачивания не нужны.
 
 ```bash
 cd "$HOME"
 sudo apt update
 sudo apt install git
-git clone -b linux git@github.com:tri6odin/watchdog-tui.git
+git clone https://github.com/tri6odin/watchdog-tui.git
 cd watchdog-tui
 ```
 
-### 3. Запустить системную настройку
+### 2. Запустить системную настройку
 
 ```bash
 sudo scripts/configure_raspberry_pi_host.sh
@@ -116,7 +92,7 @@ IoT Wi-Fi SSID/password
 sudo env ADVANCED_WATCHDOG_CONF=1 scripts/configure_raspberry_pi_host.sh
 ```
 
-### 4. Проверить конфиг и один прогон
+### 3. Проверить конфиг и один прогон
 
 ```bash
 sudo nano watchdog.conf
@@ -133,7 +109,7 @@ sudo systemctl restart kmsconvt@tty1
 
 ```bash
 cd "$HOME/watchdog-tui"
-git pull origin linux
+git pull origin main
 sudo systemctl restart kmsconvt@tty1
 ```
 
@@ -614,3 +590,16 @@ python3 -m py_compile watchdog_tui.py watchdog_config.py watchdog_core.py watchd
 ```bash
 python3 -m unittest
 ```
+
+## Лицензия
+
+Исходный код распространяется по лицензии [MIT](LICENSE).
+Шрифт JetBrains Mono Compact сохраняет лицензию
+[SIL Open Font License 1.1](docs/fonts/OFL.txt).
+
+## Локальные данные
+
+Пароли и токены задаются только в локальном `watchdog.conf`.
+Этот файл, журналы и базы SQLite исключены из Git через `.gitignore`.
+В примерах используются демонстрационные адреса и имена Wi-Fi;
+замените их значениями своей сети перед запуском.
